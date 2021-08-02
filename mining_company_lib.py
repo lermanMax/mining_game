@@ -3,6 +3,8 @@ from pint import UnitRegistry
 ureg = UnitRegistry()
 Q_ = ureg.Quantity
 
+power = Q_(5, 'hour')
+print(power)
 
 class Game:
     """Создает новые миры 
@@ -42,19 +44,38 @@ class World:
         
         
         self.name = world_parameters['name']
-        self._current_round = 0
+        self._current_round = 1
+        self._current_year = 1
+        self._hours_per_round = Q_(
+            world_parameters['hours_per_round'], 'hour') #(24*28*3 = 2016)
+        self._working_hours_per_round = Q_(
+            world_parameters['working_hours_per_round'], 'hour') #(8*20*3 = 480)
+        self._rounds_per_year = world_parameters['rounds_per_year'] #( 4 )
         self.list_of_companies = set()
         self.list_of_regions = set()
+        self._list_of_autonomous_organizations = set()
         
         self.bank = Bank(name = 'Bank', world = self)
         self.government = Government(name = "Government", world = self)
         
         self._add_regions(world_parameters['regions'])
         
-        
     
     def get_current_round(self) -> int:
         return self._current_round
+    
+    def get_current_year(self) -> int:
+        return self._current_year
+    
+    def get_rounds_per_year(self) -> int:
+        return self._rounds_per_year
+    
+    def add_autonomous_organization_in_list(
+            self, new_organization: Autonomous_organization): 
+        self._list_of_autonomous_organizations.add(new_organization)
+    
+    def get_list_of_autonomous_organizatons(self):
+        return self._list_of_autonomous_organizations.copy()
     
     def add_company(self, name: str, balance: int) -> Company:
         new_company = Company(
@@ -119,6 +140,8 @@ class World:
         
         
         print(f'Round {self._current_round} is finish')
+        if self.get_current_round() % self.get_rounds_per_year() == 0:
+            self._current_year += 1
         self._current_round += 1 
         print(f'Round {self._current_round} is start')
         
@@ -135,7 +158,17 @@ class World:
             company._change_company_status(Company.in_process_status)
 
 
-class Bank:
+class Autonomous_organization:
+    
+    def __init__(self, world: World):
+        self.my_world = world
+        self.my_world.add_autonomous_organization_in_list(self)
+        
+    def start_activities(self):
+        pass
+    
+
+class Bank(Autonomous_organization):
     """
     Управляет транзакциями
     Выдает кредиты
@@ -147,13 +180,14 @@ class Bank:
             name: str, 
             world: World, 
             balance: int = 0):
+        super().__init__(world)
         
         self.name = name
         self.my_world = world
         self.balance = balance
         
         self.list_of_loan_offers = []
-    
+        
     
     def start_activities(self):
         pass
@@ -200,7 +234,6 @@ class Bank:
     
     def create_loan_offer(self):
         pass
-   
     
 
 class Entity:
@@ -212,17 +245,19 @@ class Entity:
     
     def __init__(
             self, 
-            name, 
+            name: str, 
             world: World, 
             balance: int = 0):
         
-        self.name = name
+        self._name = name
         self.my_world = world
         self.my_bank = world.bank
         self._balance = balance
         
         self._property_list = set()
     
+    def get_name(self) -> str:
+        return self._name.copy()
 
     def get_balance(self) -> int:
         return self._balance
@@ -236,9 +271,8 @@ class Entity:
     def get_property_list(self) -> set:
         return self._property_list.copy()
     
-    
 
-class Government(Entity):
+class Government(Entity, Autonomous_organization):
     """Правительство 
     
     Продает активы
@@ -253,10 +287,15 @@ class Government(Entity):
             world: World,
             balance: int = 0):
         
-        super().__init__(
+        Entity.__init__(
+            self,
             name = name, 
             world = world, 
             balance = balance)
+        
+        Autonomous_organization.__init__(
+            self, world = world)
+        
         
         self.auction_list = []
     
@@ -272,7 +311,6 @@ class Government(Entity):
     def add_asset_to_auction_list(self):
         pass
     
-
 
 class Company(Entity):
     """компания = команда игроков
@@ -358,9 +396,9 @@ class Company(Entity):
         pass
 
 
-class Region(Entity):
-    """В регионах разные условия работы"""
-
+class Region(Entity, Autonomous_organization):
+    """В регионах разные условия работы
+    """
     def __init__(
             self, 
             name: str, 
@@ -372,14 +410,22 @@ class Region(Entity):
             environmental_tax=None,
             average_coal_price=None):
         
-        super().__init__(
+        Entity.__init__(
+            self,
             name = name, 
             world = world,
             balance = balance)
         
+        Autonomous_organization.__init__(
+            self, world = world)
+        
         self.income_tax = income_tax
         self.list_of_assets = set()
+        
+        self.equipment_market = Equipment_market('Equipment_market', self)
     
+    def start_activities(self):
+        pass
     
     def environmental_test(self):
         pass
@@ -416,13 +462,13 @@ class Product:
             world: World,
             owner: Entity,
             price: int = 0,
-            quantity: Q_ = None,
+            quantity: Q_ = Q_(1, 'count'),
             product_status: str = not_for_sale_status):
         
-        self.name = name
+        self._name = name
         self.my_world = world
         self._price = price
-        self.quantity = quantity
+        self._quantity = quantity
         self._owner = owner
         self._owner.add_property(self)
         self._product_status = product_status
@@ -432,10 +478,14 @@ class Product:
             if self.owner.can_make_changes():
                 return True
             else:
-                print(f'Company {self.owner.name} cant make changes now')
+                print(f'Company {self.owner.get_name()} cant make changes now')
                 return False
         except:
             return False
+        
+        
+    def get_name(self) -> str:
+        return self._name.copy()
     
     def get_price(self) -> int:
         return self._price
@@ -465,6 +515,9 @@ class Product:
         self._owner.add_property(self)
         self.change_product_status(Product.not_for_sale_status)
     
+    def get_quantity(self) -> Q_:
+        return self._quantity
+    
     def take_part(self, quantity: Q_ = None):
         if not self.can_owner_make_changes(): return
         pass
@@ -475,7 +528,6 @@ class Product:
         else:
             return False
         
-    
     
 class Asset(Product, Entity):
     """Актив
@@ -566,71 +618,116 @@ class Asset(Product, Entity):
         pass
         
     
+class Mining_machine(Product):
+    """Угле добывающая машина
     
+    power: Q_(x, 'kg/hour') - мощность добычи
+    people_for_service: int - необходимо человек для обслуживания
+    year_of_release: int - год выпуска
+    """
     
-
-if __name__ == "__main__":
-    
-    world_parameters = {
-        'name': 'Game_1',
-        'regions':[
-            {
-                'name': 'North', 
-                'balance': 10_000_000,
-                'assets':[
-                    {
-                        'name': 'A', 
-                        'balance': 0, 
-                        'price': 70_000,
-                        'initial_investment': 10_000},
-                    {
-                        'name': 'B', 
-                        'balance': 0, 
-                        'price': 45_000,
-                        'initial_investment': 10_000}]
-                },
-            {
-                'name': 'West_', 
-                'balance': 30_000_000,
-                'assets':[
-                    {
-                        'name': 'C', 
-                        'balance': 0, 
-                        'price': 20_000,
-                        'initial_investment': 20_000}]
-                }
-            ]
-        }
-
-    Game_1 = Game()
-    
-    w = Game_1.create_world(world_parameters)
-    
-    print()
-    
-    assets = {}
-    print('name    price status')
-    for region in w.list_of_regions:
-        for asset in region.list_of_assets:
-            assets[asset.name] = asset
-            print(asset.name, 
-                  asset.my_region.name, 
-                  asset.get_price(), 
-                  asset.get_product_status())
+    def __init__(
+            self, 
+            name: str, 
+            world: World,
+            owner: Entity,
+            price: int,
+            quantity: Q_,
+            power: Q_,
+            people_for_service: int,
+            year_of_release: int
+            ):
         
-    # print()
-    # company_1 = w.add_company('RosPromMining', 100_000)
-    # print()
-    # assets['C'].change_product_status(Product.sale_status)
+        super().__init__(
+            name = name,
+            world = world,
+            owner = owner,
+            price = price,
+            quantity = quantity)
+        
+        self._power = power
+        self._people_for_service = people_for_service
+        self._year_of_release = year_of_release
+        
+    def get_power(self) -> Q_:
+        return self._power
+    
+    def get_number_of_people_for_service(self) -> int:
+        return self._people_for_service
+    
+    def get_year_of_release(self) -> int:
+        return self._year_of_release
 
+
+class Equipment_market(Entity, Autonomous_organization):
+    """Рынок оборудования
     
-    # company_1.buy(assets['C'])
+    """
+    def __init__(
+            self, 
+            name: str, 
+            region: Region,
+            balance: int = 0):
+        
+        Entity.__init__(
+            self,
+            name = name, 
+            world = region.my_world, 
+            balance = balance)
+        Autonomous_organization.__init__(
+            self, world=region.my_world)
+        
+        self.my_region = region
     
-    # assets['C'].start_asset()
     
-    # company_1.confirm_actions()
+    def start_activities(self):
+        features_of_equipment  = {
+            'Mining_equipment_class_C': {
+                'power': Q_(50, 'kg/hour'),
+                'people_for_service': 2,
+                'price': 14_000,
+                'quantity': Q_(5, 'count')},
+            'Mining_equipment_class_B': {
+                'power': Q_(100, 'kg/hour'),
+                'people_for_service': 3,
+                'price': 28_000,
+                'quantity': Q_(3, 'count')},
+            'Mining_equipment_class_A': {
+                'power': Q_(200, 'kg/hour'),
+                'people_for_service': 2,
+                'price': 70_000,
+                'quantity': Q_(1, 'count')}
+            }
+        
+        for name, features in features_of_equipment.items():
+            Mining_machine(
+                name = name, 
+                world = self.my_world, 
+                owner = self, 
+                price = features['price'], 
+                quantity = features['quantity'], 
+                power = features['power'], 
+                people_for_service = features['people_for_service'], 
+                year_of_release = self.my_world.get_current_year())
+            
     
-    # company_1.get_company_status()
+    def amount_of_mining_equipment_available(self) -> dict:
+        """
+        """
+        result = {}
+        for equipment in self.get_property_list():
+            if equipment is Mining_machine:
+                name = equipment.get_name() 
+                if name in result:
+                    result[name] += equipment.get_quantity()
+                else:
+                    result[name] = equipment.get_quantity()
+                    
+        return result
+    
+    
+    def amount_of_preparation_equipment_available(self) -> dict:
+        pass
     
     
     

@@ -1,5 +1,5 @@
 from mining_company_lib import (
-    World, Entity, Region, Government, Bank, Q_, Asset)
+    World, Entity, Region, Government, Bank, Q_, Asset, Product)
 
 
 class Coal_mining_asset(Asset):
@@ -97,28 +97,91 @@ class Mining_equipment:
     
     def __init__(self, my_asset: Coal_mining_asset):
         self.my_asset = my_asset
+        
+        self._amount_of_equipment = {
+            'Mining_equipment_class_C': 0,
+            'Mining_equipment_class_B': 0,
+            'Mining_equipment_class_A': 0 }
+        self._target_amount_of_equipment = {
+            'Mining_equipment_class_C': 0,
+            'Mining_equipment_class_B': 0,
+            'Mining_equipment_class_A': 0 }
+        
+        self._people_for_service_of_one_unit = {
+            'Mining_equipment_class_C': 2,
+            'Mining_equipment_class_B': 3,
+            'Mining_equipment_class_A': 2 }
     
     
-    def number_of_equipment(self) -> dict:
+    def get_amount_of_equipment(self) -> dict:
         """Количество оборудования"""
-        pass
+        return self._amount_of_equipment.copy()
+        
     
-    def power_of_one_unit() -> dict:
-        """Мощность оборудования"""
-        pass
+    def get_features_of_equipment(self) -> dict:
+        """Свойства оборудования"""
+        return self._features_of_equipment.copy()
+
     
-    def number_of_people_for_service() -> dict:
-        """Необходимо персонала для обслуживания оборудования"""
-        pass
-    
-    def set_target_amount_of_equipment(self, amount: int):
+    def set_target_amount_of_equipment(self, target_amount: dict):
         """Целевое количество оборудования"""
         if not self.my_asset.can_owner_make_changes(): return
-        pass
+        
+        limit = self.limiting_target_amount_of_equipment()
+        try:
+            for name, amount in target_amount.items():
+                if not (limit[name]['max_limit'] 
+                        <= amount 
+                        <= limit[name]['min_limit']):
+                    raise ValueError(
+                        'target_amount_of_equipment out of limits')
+        except:
+            return
+        
+        for name, amount in target_amount.items():
+            self._target_amount_of_equipment[name] = amount
     
-    def amount_of_equipment_available_for_buy() -> int:
+    
+    def additional_amount_of_equipment_for_buy(self) -> dict:
+        """Дополнительное оборудование для покупки"""
+        result = {
+            'Mining_equipment_class_C': Q_(0, 'count'),
+            'Mining_equipment_class_B': Q_(0, 'count'),
+            'Mining_equipment_class_A': Q_(0, 'count')}
+        return result
+        
+    
+    def amount_of_equipment_available_for_buy(self) -> dict:
         """Количество оборудования доступного для покупки"""
-        pass
+        my_market = self.my_asset.my_region.equipment_market
+            
+        on_market = my_market.amount_of_mining_equipment_available()
+        additional = self.additional_amount_of_equipment_for_buy()
+        
+        result = {}
+        for equip_dict in [on_market, additional]:
+            for name, amount in equip_dict.items():
+                if name in result:
+                    result[name] += amount
+                else:
+                    result[name] = amount
+                    
+        return result
+    
+    
+    def limiting_target_amount_of_equipment(self) -> dict:
+        result = {
+            'Mining_equipment_class_C': {'max_limit': 0, 'min_limit': 0},
+            'Mining_equipment_class_B': {'max_limit': 0, 'min_limit': 0},
+            'Mining_equipment_class_A': {'max_limit': 0, 'min_limit': 0} }
+        
+        available_for_buy = self.amount_of_equipment_available_for_buy()
+        amount_of_equipment = self.get_amount_of_equipment()
+        
+        for name, limit_dict in result.items():
+            limit_dict['max_limit'] = (available_for_buy[name]
+                                       + amount_of_equipment[name])
+        return result
 
 
 class Preparation_equipment:
