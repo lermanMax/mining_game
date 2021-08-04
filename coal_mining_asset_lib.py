@@ -1,5 +1,6 @@
 from mining_company_lib import (
-    World, Entity, Region, Government, Bank, Q_, Asset, Product)
+    Entity, Region, Q_, Asset, Product, 
+    Mining_machine, Preparation_line)
 
 
 class Coal_mining_asset(Asset):
@@ -93,38 +94,79 @@ class Coal_preparation:
    
 
 
-class Mining_equipment:
+class Equipment:
     
     def __init__(self, my_asset: Coal_mining_asset):
         self.my_asset = my_asset
         
-        self._amount_of_equipment = {
-            'Mining_equipment_class_C': 0,
-            'Mining_equipment_class_B': 0,
-            'Mining_equipment_class_A': 0 }
         self._target_amount_of_equipment = {
             'Mining_equipment_class_C': 0,
             'Mining_equipment_class_B': 0,
-            'Mining_equipment_class_A': 0 }
-        
-        self._people_for_service_of_one_unit = {
-            'Mining_equipment_class_C': 2,
-            'Mining_equipment_class_B': 3,
-            'Mining_equipment_class_A': 2 }
+            'Mining_equipment_class_A': 0, 
+            'Preparation_line': 0
+            }
+    
+    
+    def get_list_of_mining_equipment(self) -> set:
+        list_of_mining_equipment = set()
+        for product in self.my_asset.get_property_list():
+            if product is Mining_machine:
+                list_of_mining_equipment.add(product)
+                
+        return list_of_mining_equipment
+    
+    def get_list_of_preparation_equipment(self) -> set:
+        list_of_preparation_equipment = set()
+        for product in self.my_asset.get_property_list():
+            if product is Preparation_line:
+                list_of_preparation_equipment.add(product)
+                
+        return list_of_preparation_equipment
     
     
     def get_amount_of_equipment(self) -> dict:
         """Количество оборудования"""
-        return self._amount_of_equipment.copy()
-        
+        result = {}
+        all_equipment = set()
+        all_equipment.update(self.get_list_of_mining_equipment())
+        all_equipment.update(self.get_list_of_preparation_equipment())
+        for equipment in all_equipment:
+            name = equipment.get_name()
+            if name in result:
+                result[name] += equipment.get_quantity()
+            else:
+                result[name] = equipment.get_quantity()
+                
+        return result
     
-    def get_features_of_equipment(self) -> dict:
-        """Свойства оборудования"""
-        return self._features_of_equipment.copy()
-
+    
+    def get_target_amount_of_equipment(self) -> dict:
+        return self._target_amount_of_equipment.copy()
+    
+    
+    def limiting_target_amount_of_equipment(self) -> dict:
+        """Ограничение для целевого числа оборудования"""
+        result = {
+            'Mining_equipment_class_C': {'max_limit': 0, 'min_limit': 0},
+            'Mining_equipment_class_B': {'max_limit': 0, 'min_limit': 0},
+            'Mining_equipment_class_A': {'max_limit': 0, 'min_limit': 0} }
+        
+        available_for_buy = self.amount_of_equipment_available_for_buy()
+        amount_of_equipment = self.get_amount_of_equipment()
+        
+        for name, limit_dict in result.items():
+            limit_dict['max_limit'] = (available_for_buy[name]
+                                       + amount_of_equipment[name])
+        return result
+    
     
     def set_target_amount_of_equipment(self, target_amount: dict):
-        """Целевое количество оборудования"""
+        """Целевое количество оборудования
+        
+        target_amount ={
+            'name': Q_(1, 'count')
+            }
+        """
         if not self.my_asset.can_owner_make_changes(): return
         
         limit = self.limiting_target_amount_of_equipment()
@@ -155,7 +197,7 @@ class Mining_equipment:
         """Количество оборудования доступного для покупки"""
         my_market = self.my_asset.my_region.equipment_market
             
-        on_market = my_market.amount_of_mining_equipment_available()
+        on_market = my_market.amount_of_mining_equipment_available_for_sale()
         additional = self.additional_amount_of_equipment_for_buy()
         
         result = {}
@@ -169,47 +211,48 @@ class Mining_equipment:
         return result
     
     
-    def limiting_target_amount_of_equipment(self) -> dict:
-        result = {
-            'Mining_equipment_class_C': {'max_limit': 0, 'min_limit': 0},
-            'Mining_equipment_class_B': {'max_limit': 0, 'min_limit': 0},
-            'Mining_equipment_class_A': {'max_limit': 0, 'min_limit': 0} }
+    def list_of_equipment_need_to_buy(self) -> dict:
+        """Список покупок
+        list_to_buy = {
+            'name': Q_(1, 'count')
+            }
+        """
+        list_to_buy = {}
         
-        available_for_buy = self.amount_of_equipment_available_for_buy()
         amount_of_equipment = self.get_amount_of_equipment()
+        for name, target_amount in self.get_target_amount_of_equipment():
+            if name in amount_of_equipment:
+                difference = target_amount - amount_of_equipment[name]
+                list_to_buy[name] = max(difference, 0)
+            else:
+                list_to_buy[name] = target_amount
         
-        for name, limit_dict in result.items():
-            limit_dict['max_limit'] = (available_for_buy[name]
-                                       + amount_of_equipment[name])
-        return result
-
-
-class Preparation_equipment:
+        return list_to_buy
     
-    def __init__(self, my_asset: Coal_mining_asset):
-        self.my_asset = my_asset
+    def list_of_equipment_need_to_sale(self) -> dict:
+        """Списко на продажу
+        
+        list_to_sale = {
+            'name': Q_(1, 'count')
+            }
+        """
+        list_to_sale = {}
+        
+        amount_of_equipment = self.get_amount_of_equipment()
+        for name, target_amount in self.get_target_amount_of_equipment():
+            if name in amount_of_equipment:
+                difference = target_amount - amount_of_equipment[name]
+                list_to_sale[name] = min(difference, 0) * -1
+            else:
+                list_to_sale[name] = target_amount
+        
+        return list_to_sale
     
-    
-    def number_of_equipment(self) -> dict:
-        """Количество оборудования"""
-        pass
-    
-    def power_of_one_unit() -> dict:
-        """Мощность оборудования"""
-        pass
-    
-    def number_of_people_for_service() -> dict:
-        """Необходимо персонала для обслуживания оборудования"""
-        pass
-    
-    def set_target_amount_of_equipment(self, amount: int):
-        """Целевое количество оборудования"""
-        if not self.my_asset.can_owner_make_changes(): return
-        pass
-    
-    def amount_of_equipment_available_for_buy() -> int:
-        """Количество оборудования доступного для покупки"""
-        pass
+    def purchase(self):
+        """Закупка оборудования"""
+        
+        
+            
 
 
 class Managers:

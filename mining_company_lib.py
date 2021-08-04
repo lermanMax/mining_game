@@ -3,8 +3,11 @@ from pint import UnitRegistry
 ureg = UnitRegistry()
 Q_ = ureg.Quantity
 
-power = Q_(5, 'hour')
-print(power)
+power = Q_(5, 'count')
+p_1 = Q_(2, 'count')
+print(power//p_1)
+power.magnitude
+power.units
 
 class Game:
     """Создает новые миры 
@@ -110,13 +113,13 @@ class World:
                 price = asset['price'],
                 initial_investment = asset['initial_investment'])
             
-            region.list_of_assets.add(new_asset)
+            region.add_asset(new_asset)
             
             
     def get_list_of_started_assets(self) -> set:
         started_list = set()
         for rigion in self.list_of_regions:
-            for asset in rigion.list_of_assets:
+            for asset in rigion.get_list_of_assets():
                 if asset.get_asset_status() != Asset.not_started_status:
                     started_list.add(asset)
                     
@@ -420,9 +423,16 @@ class Region(Entity, Autonomous_organization):
             self, world = world)
         
         self.income_tax = income_tax
-        self.list_of_assets = set()
+        self._list_of_assets = set()
         
         self.equipment_market = Equipment_market('Equipment_market', self)
+    
+    def get_list_of_assets(self):
+        return self._list_of_assets.copy()
+    
+    def add_asset(self, asset: Asset):
+        self._list_of_assets.add(asset)
+        
     
     def start_activities(self):
         pass
@@ -474,6 +484,8 @@ class Product:
         self._product_status = product_status
     
     def can_owner_make_changes(self) -> bool:
+        if type(self.owner) == Autonomous_organization: return True
+        
         try:
             if self.owner.can_make_changes():
                 return True
@@ -518,15 +530,32 @@ class Product:
     def get_quantity(self) -> Q_:
         return self._quantity
     
-    def take_part(self, quantity: Q_ = None):
+    def _change_quantity(self, new_quantity: Q_):
+        self._quantity = new_quantity
+    
+    def get_all_params(self) -> dict:
+        return {
+            'name': self.get_name(), 
+            'world': self.my_world,
+            'owner': self.get_owner(),
+            'price': self.get_price(),
+            'quantity': self.get_quantity(),
+            'product_status': self.get_product_status()
+            }
+    
+    def take_part(self, quantity: Q_):
         if not self.can_owner_make_changes(): return
-        pass
+        if not quantity < self.get_quantity(): 
+            raise ValueError('quantity too much')
+        params = self.get_all_params()
+        params['quantity'] = quantity
+        self._change_quantity(self.get_quantity() - quantity)
+        copy = type(self)(**params)
+        return copy
     
     def can_product_be_sold(self) -> bool:
-        if self.get_product_status() == Product.sale_status:
-            return True
-        else:
-            return False
+        return self.get_product_status() == Product.sale_status
+            
         
     
 class Asset(Product, Entity):
@@ -643,7 +672,8 @@ class Mining_machine(Product):
             world = world,
             owner = owner,
             price = price,
-            quantity = quantity)
+            quantity = quantity,
+            product_status = Product.sale_status)
         
         self._power = power
         self._people_for_service = people_for_service
@@ -657,7 +687,73 @@ class Mining_machine(Product):
     
     def get_year_of_release(self) -> int:
         return self._year_of_release
+    
+    def get_all_params(self) -> dict:
+        return {
+            'name': self.get_name(), 
+            'world': self.my_world,
+            'owner': self.get_owner(),
+            'price': self.get_price(),
+            'quantity': self.get_quantity(),
+            'power': self.get_power(),
+            'people_for_service': self.get_number_of_people_for_service(),
+            'year_of_release': self.get_year_of_release()
+            }
 
+
+class Preparation_line(Product):
+    """Обогатительная линия
+    
+    power: Q_(x, 'kg/hour') - мощность обогащения
+    people_for_service: int - необходимо человек для обслуживания
+    year_of_release: int - год выпуска
+    """
+    
+    def __init__(
+            self, 
+            name: str, 
+            world: World,
+            owner: Entity,
+            price: int,
+            quantity: Q_,
+            power: Q_,
+            people_for_service: int,
+            year_of_release: int
+            ):
+        
+        super().__init__(
+            name = name,
+            world = world,
+            owner = owner,
+            price = price,
+            quantity = quantity,
+            product_status = Product.sale_status)
+        
+        self._power = power
+        self._people_for_service = people_for_service
+        self._year_of_release = year_of_release
+        
+    def get_power(self) -> Q_:
+        return self._power
+    
+    def get_number_of_people_for_service(self) -> int:
+        return self._people_for_service
+    
+    def get_year_of_release(self) -> int:
+        return self._year_of_release
+    
+    def get_all_params(self) -> dict:
+        return {
+            'name': self.get_name(), 
+            'world': self.my_world,
+            'owner': self.get_owner(),
+            'price': self.get_price(),
+            'quantity': self.get_quantity(),
+            'power': self.get_power(),
+            'people_for_service': self.get_number_of_people_for_service(),
+            'year_of_release': self.get_year_of_release()
+            }
+    
 
 class Equipment_market(Entity, Autonomous_organization):
     """Рынок оборудования
@@ -710,24 +806,73 @@ class Equipment_market(Entity, Autonomous_organization):
                 people_for_service = features['people_for_service'], 
                 year_of_release = self.my_world.get_current_year())
             
+        features_of_equipment  = {
+            'Preparation_line': {
+                'power': Q_(2500, 'kg/hour'),
+                'people_for_service': 20,
+                'price': 60_000,
+                'quantity': Q_(1, 'count')}
+            }
+        
+        for name, features in features_of_equipment.items():
+            Preparation_line(
+                name = name, 
+                world = self.my_world, 
+                owner = self, 
+                price = features['price'], 
+                quantity = features['quantity'], 
+                power = features['power'], 
+                people_for_service = features['people_for_service'], 
+                year_of_release = self.my_world.get_current_year())
+            
     
-    def amount_of_mining_equipment_available(self) -> dict:
-        """
+    def _amount_of_equipment(self) -> dict:
+        """Сколько оборудовния имеется сейчас
+        {
+            'name': Q_(1, 'count')
+            }
         """
         result = {}
         for equipment in self.get_property_list():
-            if equipment is Mining_machine:
-                name = equipment.get_name() 
-                if name in result:
-                    result[name] += equipment.get_quantity()
-                else:
-                    result[name] = equipment.get_quantity()
+            name = equipment.get_name() 
+            if name in result:
+                result[name] += equipment.get_quantity()
+            else:
+                result[name] = equipment.get_quantity()
                     
         return result
     
+    def amount_of_equipment_available_for_sale(self) -> dict:
+        """Cколько готовы продать одному активу
+        {
+            'name': Q_(1, 'count')
+            }
+        """
+        amount_of_assets = len(self.my_region.get_list_of_assets())
+        result = {}
+        for name, amount_of_equipment in self._amount_of_equipment():
+            amount = amount_of_equipment//amount_of_assets
+            result[name] = Q_(amount.magnitude, amount_of_equipment.units) 
+        return result
+        
     
-    def amount_of_preparation_equipment_available(self) -> dict:
-        pass
+    def get_list_of_equipment_for_sale(
+            self, purchase_name: str, amount: Q_) -> set:
+        """Получить список оборудования, которое покупатель собирается купить
+        """
+        result = set()
+        how_much_more_is_needed = amount
+        
+        for equipment in self.get_property_list():
+            if equipment.get_name() == purchase_name:
+                quantity = equipment.get_quantity()
+                if quantity < how_much_more_is_needed:
+                    result.add(equipment)
+                    how_much_more_is_needed -= quantity
+                else:
+                    
+                
+            
     
     
     
