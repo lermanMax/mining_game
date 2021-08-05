@@ -3,11 +3,11 @@ from pint import UnitRegistry
 ureg = UnitRegistry()
 Q_ = ureg.Quantity
 
-power = Q_(5, 'count')
-p_1 = Q_(2, 'count')
-print(power//p_1)
-power.magnitude
-power.units
+# power = Q_(5, 'count')
+# p_1 = Q_(2, 'count')
+# print(power//p_1)
+# power.magnitude
+# power.units
 
 class Game:
     """Создает новые миры 
@@ -86,7 +86,7 @@ class World:
             world=self, 
             balance=balance)
         self.list_of_companies.add(new_company)
-        print(f'Company "{new_company.name}" was added')
+        print(f'Company "{new_company.get_name()}" was added')
         return new_company
     
     
@@ -106,12 +106,14 @@ class World:
     def _add_assets(self, assets: list, region: Region):
         
         for asset in assets:
-            new_asset = Asset(
+            new_asset = Coal_mining_asset(
                 name = asset['name'], 
                 region = region,
                 balance = asset['balance'], 
                 price = asset['price'],
-                initial_investment = asset['initial_investment'])
+                initial_investment = asset['initial_investment'],
+                estimated_coal_supply = Q_(asset['estimated_coal_supply'], 'ton')
+                )
             
             region.add_asset(new_asset)
             
@@ -119,9 +121,8 @@ class World:
     def get_list_of_started_assets(self) -> set:
         started_list = set()
         for rigion in self.list_of_regions:
-            for asset in rigion.get_list_of_assets():
-                if asset.get_asset_status() != Asset.not_started_status:
-                    started_list.add(asset)
+            list_ = rigion.get_list_of_started_assets()
+            started_list.update(list_)
                     
         return started_list
     
@@ -142,11 +143,16 @@ class World:
             company._collect_profit_from_assets()
         
         
-        print(f'Round {self._current_round} is finish')
+        print(f'Round {self.get_current_round()} is finish')
         if self.get_current_round() % self.get_rounds_per_year() == 0:
             self._current_year += 1
+            print(f'New year {self.get_current_year()} is start')
         self._current_round += 1 
-        print(f'Round {self._current_round} is start')
+        print(f'Round {self.get_current_round()} is start')
+        
+        #Все автономные организации начинают свою активность
+        for organizaton in self.get_list_of_autonomous_organizatons():
+            organizaton.start_activities()
         
         # Все компании снова получают доступ к изменениям
         self._open_access_for_companies()
@@ -215,15 +221,15 @@ class Bank(Autonomous_organization):
             return
         
         self.put_money(payee, amount_of_money)
-        print(f'Transaction: "{payer.name}" paid to "{payee.name}" {amount_of_money}$')
+        print(f'Transaction: "{payer.get_name()}" paid to "{payee.get_name()}" {amount_of_money}$')
         
     
     def trade_deal(self, buyer: Entity, product: Product):
         if not product.can_product_be_sold() :
-            print(f'Product {product.name} is not for sale')
+            print(f'Product {product.get_name()} is not for sale')
             return
         if buyer.get_balance() < product.get_price():
-            print(f'Buyer {buyer.name} dont have enough money for deal')
+            print(f'Buyer {buyer.get_name()} dont have enough money for deal')
             return
          
         self.transaction(
@@ -232,7 +238,7 @@ class Bank(Autonomous_organization):
             amount_of_money=product.get_price())
         
         product._change_owner(buyer)
-        print(f'Product "{product.name}" has been sold to Buyer "{buyer.name}"')
+        print(f'Product "{product.get_name()}" has been sold to Buyer "{buyer.get_name()}"')
     
     
     def create_loan_offer(self):
@@ -260,7 +266,7 @@ class Entity:
         self._property_list = set()
     
     def get_name(self) -> str:
-        return self._name.copy()
+        return self._name
 
     def get_balance(self) -> int:
         return self._balance
@@ -346,7 +352,7 @@ class Company(Entity):
         if self.get_company_status() == Company.in_process_status:
             return True
         else:
-            print(f'Company "{self.owner.name}" cant make changes now')
+            print(f'Company "{self.get_owner().get_name()}" cant make changes now')
             return False
         
     def _change_company_status(self, new_status: str):
@@ -357,7 +363,7 @@ class Company(Entity):
     
     def confirm_actions(self):
         self._company_status = Company.ready_status
-        print(f'Company "{self.name}" confirmed actions')
+        print(f'Company "{self.get_name()}" confirmed actions')
         self.my_world.next_round()
     
     
@@ -392,7 +398,7 @@ class Company(Entity):
                     payee = self, 
                     amount_of_money = amount_of_profit)
         
-        print(f'Company "{self.name}" made profit: {total_profit}$')
+        print(f'Company "{self.get_name()}" made profit: {total_profit}$')
                 
  
     def invest_money_to_asset(self):
@@ -429,6 +435,14 @@ class Region(Entity, Autonomous_organization):
     
     def get_list_of_assets(self):
         return self._list_of_assets.copy()
+    
+    def get_list_of_started_assets(self) -> set:
+        started_list = set()
+        for asset in self.get_list_of_assets():
+            if asset.get_asset_status() != Asset.not_started_status:
+                started_list.add(asset)
+                    
+        return started_list
     
     def add_asset(self, asset: Asset):
         self._list_of_assets.add(asset)
@@ -484,20 +498,20 @@ class Product:
         self._product_status = product_status
     
     def can_owner_make_changes(self) -> bool:
-        if type(self.owner) == Autonomous_organization: return True
+        if issubclass(type(self.get_owner()), Autonomous_organization): return True
         
         try:
-            if self.owner.can_make_changes():
+            if self.get_owner().can_make_changes():
                 return True
             else:
-                print(f'Company {self.owner.get_name()} cant make changes now')
+                print(f'Company {self.get_owner().get_name()} cant make changes now')
                 return False
         except:
             return False
         
         
     def get_name(self) -> str:
-        return self._name.copy()
+        return self._name
     
     def get_price(self) -> int:
         return self._price
@@ -594,11 +608,13 @@ class Asset(Product, Entity):
         self.my_region = region
         self._asset_status = Asset.not_started_status
 
-    
+    def can_be_changed(self) -> bool:
+        return self.get_asset_status() == Asset.work_status
+        
     def get_asset_status(self):
         return self._asset_status
     
-    def change_asset_status(self, new_status: str):
+    def _change_asset_status(self, new_status: str):
         if new_status in Asset.list_of_statuses:
             self._asset_status = new_status
             print(f'Asset status has been changed to "{new_status}"')
@@ -609,18 +625,18 @@ class Asset(Product, Entity):
         if not self.can_owner_make_changes(): return
         
         if self.get_asset_status() != Asset.not_started_status:
-            print(f'Asset "{self.name}" is already started')
+            print(f'Asset "{self.get_name()}" is already started')
             return 
         try:
             self.my_bank.get_money(
                 payer = self.get_owner(), 
                 amount_of_money = self.initial_investment)
             
-            print(f'Owner of asset "{self.name}" paid initial investment: {self.initial_investment}$')
+            print(f'Owner of asset "{self.get_name()}" paid initial investment: {self.initial_investment}$')
             
-            self.change_asset_status(Asset.work_status)
+            self._change_asset_status(Asset.work_status)
         except:
-            print(f'Asset "{self.name}" failed to start ')
+            print(f'Asset "{self.get_name()}" failed to start ')
         
     
     def _make_money(self):
@@ -628,9 +644,9 @@ class Asset(Product, Entity):
         self.my_world.bank.put_money(
             payee = self, 
             amount_of_money = profit)
-        print(f'Asset "{self.name}" made a profit: {profit}$')
+        print(f'Asset "{self.get_name()}" made a profit: {profit}$')
         self._pay_income_tax(profit)
-        print(f'Balance of asset "{self.name}": {self.get_balance()}$')
+        print(f'Balance of asset "{self.get_name()}": {self.get_balance()}$')
         
     
     def _pay_income_tax(self, profit):
@@ -639,11 +655,12 @@ class Asset(Product, Entity):
             payer = self, 
             payee = self.my_region, 
             amount_of_money = amount_of_income_tax)
-        print(f'Asset "{self.name}" paid a income tax: {amount_of_income_tax}$')
+        print(f'Asset "{self.get_name()}" paid a income tax: {amount_of_income_tax}$')
     
     
     def invest_money(self, amount_of_money: int):
-        if not self._can_owner_make_changes(): return
+        if not self.can_owner_make_changes(): return
+        if not self.can_be_changed(): return
         pass
         
     
@@ -848,9 +865,9 @@ class Equipment_market(Entity, Autonomous_organization):
             'name': Q_(1, 'count')
             }
         """
-        amount_of_assets = len(self.my_region.get_list_of_assets())
+        amount_of_assets = len(self.my_region.get_list_of_started_assets())
         result = {}
-        for name, amount_of_equipment in self._amount_of_equipment():
+        for name, amount_of_equipment in self._amount_of_equipment().items():
             amount = amount_of_equipment//amount_of_assets
             result[name] = Q_(amount.magnitude, amount_of_equipment.units) 
         return result
@@ -858,7 +875,8 @@ class Equipment_market(Entity, Autonomous_organization):
     
     def get_list_of_equipment_for_sale(
             self, purchase_name: str, amount: Q_) -> set:
-        """Получить список оборудования, которое покупатель собирается купить
+        """Получить список оборудования, которое покупатель хочет купить. 
+        Выдает оборудование, по списку наименований. 
         """
         result = set()
         how_much_more_is_needed = amount
@@ -866,10 +884,382 @@ class Equipment_market(Entity, Autonomous_organization):
         for equipment in self.get_property_list():
             if equipment.get_name() == purchase_name:
                 quantity = equipment.get_quantity()
-                if quantity < how_much_more_is_needed:
+                if quantity <= how_much_more_is_needed:
                     result.add(equipment)
                     how_much_more_is_needed -= quantity
                 else:
+                    part_equip = equipment.take_part(how_much_more_is_needed)
+                    result.add(part_equip)
+                    break
+                
+                if not how_much_more_is_needed: break
+        
+        return result
+                
+            
+class Coal_mining_asset(Asset):
+    """ Угледобывающий актив
+    
+    estimated_coal_supply: Q_ количество угля в месторождении 
+    """
+    
+    
+    def __init__(
+            self, name: str, 
+            region: Region, 
+            balance: int = 0, 
+            price: int = 0,
+            initial_investment: int = 0,
+            estimated_coal_supply: Q_ = 0,
+            ):
+        
+        super().__init__(
+            name=name, 
+            region=region, 
+            balance=balance , 
+            price=price,
+            initial_investment=initial_investment)
+        
+        self.estimated_coal_supply = estimated_coal_supply
+        
+        self.coal_mining = Coal_mining(self)
+        self.coal_preparation = Coal_preparation(self)
+        self.equipment_fleet = Equipment_fleet(self)
+    
+    
+    def _make_money(self):
+        pass
+    
+    
+    def proceeds(self) -> int:
+        """Выручка"""
+        pass
+
+    
+    def costs(self) -> int:
+        """Расходы"""
+        pass
+    
+    
+    def coal_deposit_reserves(self) -> Q_:
+        """Запасы месторождения"""
+        pass
+    
+    
+    def asset_work(self):
+        
+        pass
+
+
+class Coal_mining:
+    
+    def __init__(self, my_asset: Coal_mining_asset):
+        self.my_asset = my_asset
+    
+    
+    def coal_mining_capacity(self):
+        """Мощность добычи угля"""
+        pass
+    
+    def set_amount_of_overtime(self):
+        """Сверхурочная работа"""
+        if not self.my_asset.can_owner_make_changes(): return
+        if not self.my_asset.can_be_changed(): return
+        pass
+    
+    def overtime_options(self):
+        """Варианты сверхурочной работы"""
+        pass
+    
+
+class Coal_preparation:
+    
+    def __init__(self, my_asset: Coal_mining_asset):
+        self.my_asset = my_asset
+    
+    
+    def coal_preparation_capacity(self):
+        """Мощность обогащения угля"""
+        pass
+    
+    def set_amount_of_overtime(self):
+        """Сверхурочная работа"""
+        if not self.my_asset.can_owner_make_changes(): return
+        if not self.my_asset.can_be_changed(): return
+        pass
+    
+    def overtime_options(self):
+        """Варианты сверхурочной работы"""
+        pass
+   
+
+
+class Equipment_fleet:
+    
+    def __init__(self, my_asset: Coal_mining_asset):
+        self.my_asset = my_asset
+        
+        self._target_amount_of_equipment = {
+            'Mining_equipment_class_C': Q_(0,'count'),
+            'Mining_equipment_class_B': Q_(0,'count'),
+            'Mining_equipment_class_A': Q_(0,'count'), 
+            'Preparation_line': Q_(0,'count')
+            }
+    
+    
+    def get_list_of_mining_equipment(self) -> set:
+        list_of_mining_equipment = set()
+        for product in self.my_asset.get_property_list():
+            if product is Mining_machine:
+                list_of_mining_equipment.add(product)
+                
+        return list_of_mining_equipment
+    
+    def get_list_of_preparation_equipment(self) -> set:
+        list_of_preparation_equipment = set()
+        for product in self.my_asset.get_property_list():
+            if product is Preparation_line:
+                list_of_preparation_equipment.add(product)
+                
+        return list_of_preparation_equipment
+    
+    
+    def get_amount_of_equipment(self) -> dict:
+        """Количество оборудования"""
+        result = {}
+        all_equipment = set()
+        all_equipment.update(self.get_list_of_mining_equipment())
+        all_equipment.update(self.get_list_of_preparation_equipment())
+        for equipment in all_equipment:
+            name = equipment.get_name()
+            if name in result:
+                result[name] += equipment.get_quantity()
+            else:
+                result[name] = equipment.get_quantity()
+                
+        return result
+    
+    
+    def get_target_amount_of_equipment(self) -> dict:
+        return self._target_amount_of_equipment.copy()
+    
+    
+    def limiting_target_amount_of_equipment(self) -> dict:
+        """Ограничение для целевого числа оборудования"""
+        result = {}
+        
+        available_for_buy = self.amount_of_equipment_available_for_buy()
+        amount_of_equipment = self.get_amount_of_equipment()
+        
+        set_of_names = set() 
+        set_of_names.update(
+            set(amount_of_equipment),
+            set(available_for_buy))
+        
+        for name in set_of_names:
+            limit_dict = {'min_limit': Q_(0,'count')}
+            if (name in amount_of_equipment
+                and name in available_for_buy):
+                limit_dict['max_limit'] = (available_for_buy[name]
+                                           + amount_of_equipment[name])
+            elif name in available_for_buy:
+                limit_dict['max_limit'] = available_for_buy[name]
+            else:
+                limit_dict['max_limit'] = amount_of_equipment[name]
+            result[name] = limit_dict
+        return result
+    
+    
+    def set_target_amount_of_equipment(self, target_amount: dict):
+        """Целевое количество оборудования
+        
+        target_amount ={
+            'name': Q_(1, 'count')
+            }
+        """
+        if not self.my_asset.can_owner_make_changes(): return
+        if not self.my_asset.can_be_changed(): return
+        
+        limit = self.limiting_target_amount_of_equipment()
+        try:
+            for name, amount in target_amount.items():
+                if not (limit[name]['max_limit'] 
+                        >= amount 
+                        >= limit[name]['min_limit']):
+                    raise ValueError(
+                        'target_amount_of_equipment out of limits')
+        except:
+            return
+        
+        for name, amount in target_amount.items():
+            self._target_amount_of_equipment[name] = amount
+    
+    
+    def additional_amount_of_equipment_for_buy(self) -> dict:
+        """Дополнительное оборудование для покупки"""
+        result = {
+            'Mining_equipment_class_C': Q_(0, 'count'),
+            'Mining_equipment_class_B': Q_(0, 'count'),
+            'Mining_equipment_class_A': Q_(0, 'count')}
+        return result
+        
+    
+    def amount_of_equipment_available_for_buy(self) -> dict:
+        """Количество оборудования доступного для покупки"""
+        my_market = self.my_asset.my_region.equipment_market
+            
+        on_market = my_market.amount_of_equipment_available_for_sale()
+        additional = self.additional_amount_of_equipment_for_buy()
+        
+        result = {}
+        for equip_dict in [on_market, additional]:
+            for name, amount in equip_dict.items():
+                if name in result:
+                    result[name] += amount
+                else:
+                    result[name] = amount
+                    
+        return result
+    
+    
+    def list_of_equipment_need_to_buy(self) -> dict:
+        """Список покупок
+        list_to_buy = {
+            'name': Q_(1, 'count')
+            }
+        """
+        list_to_buy = {}
+        
+        amount_of_equipment = self.get_amount_of_equipment()
+        for name, target_amount in self.get_target_amount_of_equipment():
+            if name in amount_of_equipment:
+                difference = target_amount - amount_of_equipment[name]
+                list_to_buy[name] = max(difference, 0)
+            else:
+                list_to_buy[name] = target_amount
+        
+        return list_to_buy
+    
+    def list_of_equipment_need_to_sale(self) -> dict:
+        """Списко на продажу
+        
+        list_to_sale = {
+            'name': Q_(1, 'count')
+            }
+        """
+        list_to_sale = {}
+        
+        amount_of_equipment = self.get_amount_of_equipment()
+        for name, target_amount in self.get_target_amount_of_equipment():
+            if name in amount_of_equipment:
+                difference = target_amount - amount_of_equipment[name]
+                list_to_sale[name] = min(difference, 0) * -1
+            else:
+                list_to_sale[name] = target_amount
+        
+        return list_to_sale
+    
+    def purchase(self):
+        """Закупка оборудования"""
+        market = self.my_asset.my_region.equipment_market
+        for name, amount in self.list_of_equipment_need_to_buy():
+            shopping_list = market.get_list_of_equipment_for_sale(
+                purchase_name = name, 
+                amount = amount)
+            for position in shopping_list:
+                self.my_asset.my_bank.trade_deal(
+                    buyer = self.my_asset, 
+                    product = position)
+
+
+class Managers:
+    
+    def __init__(self, my_asset: Coal_mining_asset):
+        self.my_asset = my_asset
+    
+    
+    def qualifications() -> dict:
+        """ """
+        pass
+    
+    def number_of_staff() -> dict:
+        """ """
+        pass
+    
+    def increasing_efficiency_of_managers(self):
+        """Повышение эффективности менеджеров"""
+        if not self.my_asset.can_owner_make_changes(): return
+        pass
+    
+    def downtime_due_to_management_errors(self):
+        """Простоии из за ошибок управления"""
+        pass
+    
+    def set_target_number_of_management(self):
+        """ """
+        if not self.my_asset.can_owner_make_changes(): return
+        pass
+    
+    def limiting_target_number_of_management(self) -> dict:
+        """ """
+        pass
+    
+    def change_working_conditions_for_managers(self):
+        """ """
+        if not self.my_asset.can_owner_make_changes(): return
+        pass
+    
+    def working_conditions_for_managers(self):
+        """ """
+        pass
+
+
+
+class Staff:
+    
+    def __init__(self, my_asset: Coal_mining_asset):
+        self.my_asset = my_asset
+    
+    
+    def qualifications() -> dict:
+        """ """
+        pass
+    
+    def number_of_staff() -> dict:
+        """ """
+        pass
+    
+    def downtime_due_to_staff_errors(self):
+        """"""
+        pass
+    
+    def set_target_number_of_staff(self):
+        """ """
+        if not self.my_asset.can_owner_make_changes(): return
+        pass
+    
+    def limiting_target_number_of_staff(self) -> dict:
+        """ """
+        pass
+    
+    
+
+class HR:
+    
+    def __init__(self, my_asset: Coal_mining_asset):
+        self.my_asset = my_asset
+    
+    
+    def number_of_managers_available_for_hire():
+        """ """
+        pass
+    
+    def number_of_staff_available_for_hire():
+        """ """
+        pass
+    
+
+                    
                     
                 
             
