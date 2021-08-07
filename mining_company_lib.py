@@ -3,9 +3,10 @@ from pint import UnitRegistry
 ureg = UnitRegistry()
 Q_ = ureg.Quantity
 
-# power = Q_(5, 'count')
+# power = Q_(0, 'kg/hour')
 # p_1 = Q_(2, 'count')
-# print(power//p_1)
+# print(power*0.1)
+# if not power: print('ok')
 # power.magnitude
 # power.units
 
@@ -662,6 +663,37 @@ class Asset(Product, Entity):
         if not self.can_owner_make_changes(): return
         if not self.can_be_changed(): return
         pass
+
+
+class Coal(Product):
+    """Уголь """
+    
+    def __init__(
+            self, 
+            name: str, 
+            world: World,
+            owner: Entity,
+            price: int,
+            quantity: Q_,
+            ):
+        
+        super().__init__(
+            name = name,
+            world = world,
+            owner = owner,
+            price = price,
+            quantity = quantity,
+            product_status = Product.sale_status)
+    
+    def get_all_params(self) -> dict:
+        return {
+            'name': self.get_name(), 
+            'world': self.my_world,
+            'owner': self.get_owner(),
+            'price': self.get_price(),
+            'quantity': self.get_quantity()
+            }
+        
         
     
 class Mining_machine(Product):
@@ -925,10 +957,13 @@ class Coal_mining_asset(Asset):
         self.coal_mining = Coal_mining(self)
         self.coal_preparation = Coal_preparation(self)
         self.equipment_fleet = Equipment_fleet(self)
+        
+        self._amount_of_coal_that_can_be_sold = None
     
     
     def _make_money(self):
-        pass
+        self.asset_work()
+        
     
     
     def proceeds(self) -> int:
@@ -945,11 +980,98 @@ class Coal_mining_asset(Asset):
         """Запасы месторождения"""
         pass
     
-    
-    def asset_work(self):
-        
+    def set_amount_of_coal_that_can_be_sold(self, amount: Q_):
         pass
+    
+    def get_amount_of_coal_that_can_be_sold(self):
+        if not self._amount_of_coal_that_can_be_sold: 
+            return self.sales_department.capacity()
+        else:
+            return self._amount_of_coal_that_can_be_sold
+    
+    def _add_coal(self, amount: Q_):
+        Coal(
+            name = f'Coal_from_{self.get_name()}', 
+            world = self.my_world, 
+            owner = self, 
+            price = self.get_coal_price(), 
+            quantity = amount)
+    
+    def get_coal_list(self) -> set:
+        result = set()
+        
+        for property_ in self.get_property_list():
+            if type(property_) is Coal:
+                result.add(property_)
+        return result
+        
+    def _sell_coal(self, amount: Q_):
+        list_for_sale = set()
+        how_much_more_is_needed = amount
 
+        for coal in self.get_coal_list():
+            quantity = coal.get_quantity()
+            if quantity <= how_much_more_is_needed:
+                list_for_sale.add(coal)
+                how_much_more_is_needed -= quantity
+            else:
+                part_coal = coal.take_part(how_much_more_is_needed)
+                list_for_sale.add(part_coal)
+                break
+                
+            if not how_much_more_is_needed: break
+        
+        for item in list_for_sale:
+            self.my_bank.trade_deal(
+                buyer = self.my_region, 
+                product = item)
+        
+        
+    def asset_work(self):  
+        #закупки для всех отделов актива
+        self.equipment_fleet.purchase()
+        
+        #работа актива
+        mining_capacity = self.coal_mining.capacity()
+        preparation_capacity = self.coal_preparation.capacity()
+        downtime = 0.01
+        useful_raw_material_ratio = 0.99
+        coal_deposit_reserves = self.coal_deposit_reserves()
+        
+        #мощность производства по узкому месту
+        production_capacity = min(mining_capacity, preparation_capacity)
+        #мощность производства с учетом простоев
+        production_capacity = production_capacity * (1-downtime)
+        #мощность производства с учетом коэфийиента полезного сырья
+        production_capacity = production_capacity * useful_raw_material_ratio
+        #мощность производства с учетом запасов месторождения
+        production_capacity = min(production_capacity, coal_deposit_reserves)
+        
+        amount_of_coal_in_werehouse = self.werehouse.amount_of_coal()
+        free_werehouse_capacity = self.werehouse.free_capacity()
+        transport_infrastructure_capacity = self.transport_infrastructure.capacity()
+        amount_of_coal_that_can_be_sold = self.get_amount_of_coal_that_can_be_sold()
+        
+        #узкое место в транспорте и продажах
+        delivery_capacity = min(
+            transport_infrastructure_capacity, 
+            amount_of_coal_that_can_be_sold)
+        #предел для производства(добычи-обагощения)
+        limit_for_production = delivery_capacity + free_werehouse_capacity
+        
+        #удалось добыть угля
+        amount_of_coal_that_was_mined = min(
+            production_capacity, limit_for_production)
+        self._add_coal(amount_of_coal_that_was_mined)
+        #Всего угля в наличии
+        amount_of_coal_available = (
+            amount_of_coal_that_was_mined + amount_of_coal_in_werehouse)
+        #удалось проадть и доставить
+        amount_of_coal_that_was_delivered = min(
+            delivery_capacity, amount_of_coal_available)
+        self._sell_coal(amount_of_coal_that_was_delivered)
+        
+        
 
 class Coal_mining:
     
@@ -957,7 +1079,7 @@ class Coal_mining:
         self.my_asset = my_asset
     
     
-    def coal_mining_capacity(self):
+    def capacity(self):
         """Мощность добычи угля"""
         pass
     
@@ -978,7 +1100,7 @@ class Coal_preparation:
         self.my_asset = my_asset
     
     
-    def coal_preparation_capacity(self):
+    def capacity(self):
         """Мощность обогащения угля"""
         pass
     
