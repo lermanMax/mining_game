@@ -3,9 +3,9 @@ from pint import UnitRegistry
 ureg = UnitRegistry()
 Q_ = ureg.Quantity
 
-# power = Q_(0, 'kg/hour')
-# p_1 = Q_(2, 'count')
-# print(power*0.1)
+# power = Q_(10, 'hour')
+# p_1 = Q_(2, 'hour')
+# print(power / p_1)
 # if not power: print('ok')
 # power.magnitude
 # power.units
@@ -54,6 +54,8 @@ class World:
             world_parameters['hours_per_round'], 'hour') #(24*28*3 = 2016)
         self._working_hours_per_round = Q_(
             world_parameters['working_hours_per_round'], 'hour') #(8*20*3 = 480)
+        self._overtime_hours_per_round = Q_(
+            world_parameters['overtime_hours_per_round'], 'hour') #(8*16 = 128)
         self._rounds_per_year = world_parameters['rounds_per_year'] #( 4 )
         self.list_of_companies = set()
         self.list_of_regions = set()
@@ -73,6 +75,12 @@ class World:
     
     def get_rounds_per_year(self) -> int:
         return self._rounds_per_year
+    
+    def get_working_hours_per_round(self) -> Q_:
+        return self._working_hours_per_round
+    
+    def get_overtime_hours_per_round(self) -> Q_:
+        return self._overtime_hours_per_round
     
     def add_autonomous_organization_in_list(
             self, new_organization: Autonomous_organization): 
@@ -227,16 +235,16 @@ class Bank(Autonomous_organization):
     
     def trade_deal(self, buyer: Entity, product: Product):
         if not product.can_product_be_sold() :
-            print(f'Product {product.get_name()} is not for sale')
-            return
-        if buyer.get_balance() < product.get_price():
-            print(f'Buyer {buyer.get_name()} dont have enough money for deal')
-            return
+            raise Exception(f'Product {product.get_name()} is not for sale')
+
+        if buyer.get_balance() < product.get_cost():
+            raise ValueError(
+                f'Buyer {buyer.get_name()} dont have enough money for deal')
          
         self.transaction(
             payer=buyer, 
             payee=product.get_owner(), 
-            amount_of_money=product.get_price())
+            amount_of_money=product.get_cost())
         
         product._change_owner(buyer)
         print(f'Product "{product.get_name()}" has been sold to Buyer "{buyer.get_name()}"')
@@ -461,12 +469,12 @@ class Region(Entity, Autonomous_organization):
 
 
 class Product:
-    """Все, что можно купить и продать
+    """Все, что можно купить или продать
     
     Параметры:
         name: str
         world: World
-        price: int - цена 
+        price: int - цена за 1 единицу измерения
         quantity: Q_ - количество товара (2 тонны). None - 1шт 
         owner: Entity - текущий владелец
         status: str - "sale, not_for_sale" статус, продется или нет
@@ -515,7 +523,14 @@ class Product:
         return self._name
     
     def get_price(self) -> int:
+        """Цена за единицу измерения"""
         return self._price
+    
+    def get_cost(self) -> int:
+        """Стоимость = цена * количество"""
+        quantity = self.get_quantity().magnitude
+        price = self.get_price()
+        return round(price * quantity)
     
     def change_price(self, new_price: int):
         if not self.can_owner_make_changes(): return
@@ -560,8 +575,13 @@ class Product:
     
     def take_part(self, quantity: Q_):
         if not self.can_owner_make_changes(): return
+        if quantity.units != self.get_quantity().units:
+            raise ValueError('wrong units')
         if not quantity < self.get_quantity(): 
             raise ValueError('quantity too much')
+        if quantity.magnitude == 0: 
+            raise ValueError('quantity cant be 0')
+        
         params = self.get_all_params()
         params['quantity'] = quantity
         self._change_quantity(self.get_quantity() - quantity)
@@ -650,13 +670,17 @@ class Asset(Product, Entity):
         print(f'Balance of asset "{self.get_name()}": {self.get_balance()}$')
         
     
-    def _pay_income_tax(self, profit):
+    def _pay_income_tax(self, profit) -> int:
+        """Подаходный налог"""
+        if profit <= 0: return 0
+        
         amount_of_income_tax = int(profit * self.my_region.income_tax)
         self.my_world.bank.transaction(
             payer = self, 
             payee = self.my_region, 
             amount_of_money = amount_of_income_tax)
         print(f'Asset "{self.get_name()}" paid a income tax: {amount_of_income_tax}$')
+        return amount_of_income_tax
     
     
     def invest_money(self, amount_of_money: int):
@@ -700,7 +724,8 @@ class Mining_machine(Product):
     """Угле добывающая машина
     
     power: Q_(x, 'kg/hour') - мощность добычи
-    people_for_service: int - необходимо человек для обслуживания
+    manhours_for_service: Q_(x, 'hour') - необходимо человек-часов 
+        для 1 часа работы оборудования
     year_of_release: int - год выпуска
     """
     
@@ -712,7 +737,7 @@ class Mining_machine(Product):
             price: int,
             quantity: Q_,
             power: Q_,
-            people_for_service: int,
+            manhours_for_service: Q_,
             year_of_release: int
             ):
         
@@ -725,14 +750,14 @@ class Mining_machine(Product):
             product_status = Product.sale_status)
         
         self._power = power
-        self._people_for_service = people_for_service
+        self._manhours_for_service = manhours_for_service
         self._year_of_release = year_of_release
         
     def get_power(self) -> Q_:
         return self._power
     
-    def get_number_of_people_for_service(self) -> int:
-        return self._people_for_service
+    def get_number_of_manhours_for_service(self) -> Q_:
+        return self._manhours_for_service
     
     def get_year_of_release(self) -> int:
         return self._year_of_release
@@ -745,7 +770,7 @@ class Mining_machine(Product):
             'price': self.get_price(),
             'quantity': self.get_quantity(),
             'power': self.get_power(),
-            'people_for_service': self.get_number_of_people_for_service(),
+            'manhours_for_service': self.get_number_of_manhours_for_service(),
             'year_of_release': self.get_year_of_release()
             }
 
@@ -754,7 +779,8 @@ class Preparation_line(Product):
     """Обогатительная линия
     
     power: Q_(x, 'kg/hour') - мощность обогащения
-    people_for_service: int - необходимо человек для обслуживания
+    manhours_for_service: Q_(x, 'hour') - необходимо человек-часов 
+        для 1 часа работы оборудования
     year_of_release: int - год выпуска
     """
     
@@ -766,7 +792,7 @@ class Preparation_line(Product):
             price: int,
             quantity: Q_,
             power: Q_,
-            people_for_service: int,
+            manhours_for_service: Q_,
             year_of_release: int
             ):
         
@@ -779,14 +805,14 @@ class Preparation_line(Product):
             product_status = Product.sale_status)
         
         self._power = power
-        self._people_for_service = people_for_service
+        self._manhours_for_service = manhours_for_service
         self._year_of_release = year_of_release
         
     def get_power(self) -> Q_:
         return self._power
     
-    def get_number_of_people_for_service(self) -> int:
-        return self._people_for_service
+    def get_number_of_manhours_for_service(self) -> int:
+        return self._manhours_for_service
     
     def get_year_of_release(self) -> int:
         return self._year_of_release
@@ -799,7 +825,7 @@ class Preparation_line(Product):
             'price': self.get_price(),
             'quantity': self.get_quantity(),
             'power': self.get_power(),
-            'people_for_service': self.get_number_of_people_for_service(),
+            'manhours_for_service': self.get_number_of_manhours_for_service(),
             'year_of_release': self.get_year_of_release()
             }
     
@@ -824,27 +850,38 @@ class Equipment_market(Entity, Autonomous_organization):
         
         self.my_region = region
     
-    
-    def start_activities(self):
+    def features_of_mining_equipment(self) -> dict:
         features_of_equipment  = {
             'Mining_equipment_class_C': {
                 'power': Q_(50, 'kg/hour'),
-                'people_for_service': 2,
+                'manhours_for_service': Q_(2, 'hour'),
                 'price': 14_000,
                 'quantity': Q_(5, 'count')},
             'Mining_equipment_class_B': {
                 'power': Q_(100, 'kg/hour'),
-                'people_for_service': 3,
+                'manhours_for_service': Q_(3, 'hour'),
                 'price': 28_000,
                 'quantity': Q_(3, 'count')},
             'Mining_equipment_class_A': {
                 'power': Q_(200, 'kg/hour'),
-                'people_for_service': 2,
+                'manhours_for_service': Q_(2, 'hour'),
                 'price': 70_000,
                 'quantity': Q_(1, 'count')}
             }
-        
-        for name, features in features_of_equipment.items():
+        return features_of_equipment
+    
+    def features_of_preparation_equipment(self) -> dict:
+        features_of_equipment  = {
+            'Preparation_line': {
+                'power': Q_(2500, 'kg/hour'),
+                'manhours_for_service': Q_(20, 'hour'),
+                'price': 60_000,
+                'quantity': Q_(1, 'count')}
+            }
+        return features_of_equipment
+    
+    def start_activities(self):
+        for name, features in self.features_of_mining_equipment().items():
             Mining_machine(
                 name = name, 
                 world = self.my_world, 
@@ -852,18 +889,10 @@ class Equipment_market(Entity, Autonomous_organization):
                 price = features['price'], 
                 quantity = features['quantity'], 
                 power = features['power'], 
-                people_for_service = features['people_for_service'], 
+                manhours_for_service = features['manhours_for_service'], 
                 year_of_release = self.my_world.get_current_year())
-            
-        features_of_equipment  = {
-            'Preparation_line': {
-                'power': Q_(2500, 'kg/hour'),
-                'people_for_service': 20,
-                'price': 60_000,
-                'quantity': Q_(1, 'count')}
-            }
         
-        for name, features in features_of_equipment.items():
+        for name, features in self.features_of_preparation_equipment().items():
             Preparation_line(
                 name = name, 
                 world = self.my_world, 
@@ -871,7 +900,7 @@ class Equipment_market(Entity, Autonomous_organization):
                 price = features['price'], 
                 quantity = features['quantity'], 
                 power = features['power'], 
-                people_for_service = features['people_for_service'], 
+                manhours_for_service = features['manhours_for_service'], 
                 year_of_release = self.my_world.get_current_year())
             
     
@@ -901,6 +930,7 @@ class Equipment_market(Entity, Autonomous_organization):
         result = {}
         for name, amount_of_equipment in self._amount_of_equipment().items():
             amount = amount_of_equipment//amount_of_assets
+            if amount == 0: next 
             result[name] = Q_(amount.magnitude, amount_of_equipment.units) 
         return result
         
@@ -908,7 +938,7 @@ class Equipment_market(Entity, Autonomous_organization):
     def get_list_of_equipment_for_sale(
             self, purchase_name: str, amount: Q_) -> set:
         """Получить список оборудования, которое покупатель хочет купить. 
-        Выдает оборудование, по списку наименований. 
+        Выдает объекты - оборудование, по списку наименований. 
         """
         result = set()
         how_much_more_is_needed = amount
@@ -942,7 +972,7 @@ class Coal_mining_asset(Asset):
             balance: int = 0, 
             price: int = 0,
             initial_investment: int = 0,
-            estimated_coal_supply: Q_ = 0,
+            estimated_coal_supply: Q_ = Q_(0, 'ton'),
             ):
         
         super().__init__(
@@ -952,33 +982,84 @@ class Coal_mining_asset(Asset):
             price=price,
             initial_investment=initial_investment)
         
-        self.estimated_coal_supply = estimated_coal_supply
+        self._estimated_coal_supply = estimated_coal_supply
+        self._mined_for_all_time = Q_(0,'ton')
         
         self.coal_mining = Coal_mining(self)
         self.coal_preparation = Coal_preparation(self)
         self.equipment_fleet = Equipment_fleet(self)
+        self.staff = Staff(self)
+        self.managers = Managers(self)
+        self.werehouse = Werehouse(self)
+        self.transport_infrastructure = Transport_infrastructure(self)
+        self.sales_department = Sales_department(self)
         
         self._amount_of_coal_that_can_be_sold = None
     
     
     def _make_money(self):
-        self.asset_work()
+        #закупка
+        purchase_costs = self._purchase()
         
+        #работа актива 
+        amount_of_coal_that_was_delivered = self.asset_work()
+        
+        #выручка 
+        proceeds = self._proceeds(amount_of_coal_that_was_delivered)
+        
+        #расходы
+        costs = self._costs(purchase_costs) 
+        
+        
+        #прибыль
+        profit = proceeds - costs
+        print(f'Asset "{self.get_name()}" made a profit: {profit}$')
+        self._pay_income_tax(profit)
+        print(f'Balance of asset "{self.get_name()}": {self.get_balance()}$')    
     
     
-    def proceeds(self) -> int:
+    def _proceeds(self, amount_of_coal_that_was_delivered: Q_) -> int:
         """Выручка"""
-        pass
+        new_coal_price = self.get_coal_price()
+        for coal in self.get_coal_list():
+            coal.change_price(new_coal_price)
+            
+        proceeds_from_coal = self._sell_coal(amount_of_coal_that_was_delivered)
+        proceeds_from_sale_of_equipment = self.equipment_fleet.sale_of_equipment()
+        
+        return proceeds_from_coal + proceeds_from_sale_of_equipment
 
     
-    def costs(self) -> int:
+    def _costs(self, purchase_costs: dict) -> int:
         """Расходы"""
-        pass
+        costs = 0
+        for name, amount in purchase_costs.items():
+            print(f'Costs of "{name}": {amount}$')
+            costs += amount
+        
+        return 0
     
+    def _purchase(self) -> dict:
+        """Закупки для всех отделов актива
+        
+        purchase_costs = {
+            'name': 10
+            }
+        """
+        purchase_costs = {}
+        purchase_costs['equipment_fleet'] = self.equipment_fleet.purchase()
+        
+        return purchase_costs
     
     def coal_deposit_reserves(self) -> Q_:
         """Запасы месторождения"""
-        pass
+        coal_supply = self._estimated_coal_supply
+        additional_coal_supply = 0
+        
+        coal_supply = coal_supply * (1+additional_coal_supply)
+        mined_for_all_time = self._mined_for_all_time
+        
+        return coal_supply - mined_for_all_time
     
     def set_amount_of_coal_that_can_be_sold(self, amount: Q_):
         pass
@@ -989,7 +1070,14 @@ class Coal_mining_asset(Asset):
         else:
             return self._amount_of_coal_that_can_be_sold
     
+    
+    def get_coal_price(self) -> int:
+        return 47
+    
     def _add_coal(self, amount: Q_):
+        if amount.magnitude == 0: return
+        
+        self._mined_for_all_time -= amount
         Coal(
             name = f'Coal_from_{self.get_name()}', 
             world = self.my_world, 
@@ -1005,7 +1093,7 @@ class Coal_mining_asset(Asset):
                 result.add(property_)
         return result
         
-    def _sell_coal(self, amount: Q_):
+    def _sell_coal(self, amount: Q_) -> int:
         list_for_sale = set()
         how_much_more_is_needed = amount
 
@@ -1021,17 +1109,21 @@ class Coal_mining_asset(Asset):
                 
             if not how_much_more_is_needed: break
         
+        proceed_from_coal = 0
         for item in list_for_sale:
+            proceed_from_coal += item.get_cost()
             self.my_bank.trade_deal(
                 buyer = self.my_region, 
                 product = item)
+            
+        return proceed_from_coal
         
         
-    def asset_work(self):  
-        #закупки для всех отделов актива
-        self.equipment_fleet.purchase()
+    def asset_work(self) -> Q_:  
+        """работа актива
         
-        #работа актива
+        возвращает количество доставленного угля Q_(10, 'ton')
+        """
         mining_capacity = self.coal_mining.capacity()
         preparation_capacity = self.coal_preparation.capacity()
         downtime = 0.01
@@ -1069,7 +1161,7 @@ class Coal_mining_asset(Asset):
         #удалось проадть и доставить
         amount_of_coal_that_was_delivered = min(
             delivery_capacity, amount_of_coal_available)
-        self._sell_coal(amount_of_coal_that_was_delivered)
+        return amount_of_coal_that_was_delivered
         
         
 
@@ -1079,9 +1171,44 @@ class Coal_mining:
         self.my_asset = my_asset
     
     
-    def capacity(self):
-        """Мощность добычи угля"""
-        pass
+    def capacity(self) -> Q_:
+        """Мощность добычи угля 
+        Q_(0,'ton')
+        """
+        working_hours = self.my_asset.my_world.get_working_hours_per_round()
+        # overtime_hours = self.my_asset.my_world.get_overtime_hours_per_round()
+        
+        equipment_fleet = self.my_asset.equipment_fleet
+        mining_equipment = equipment_fleet.get_list_of_mining_equipment()
+        
+        #потенциальная мощность добычи
+        potential_capacity = Q_(0,'ton')
+        # необходимо человекочасов для обеспечения максимальной мощности
+        required_number_of_manhours = Q_(0.01,'hour')
+        
+        for machine in mining_equipment:
+            quantity = machine.get_quantity().magnitude
+            capacity = machine.get_power() * working_hours #ton/hour * hour
+            potential_capacity += capacity * quantity 
+            
+            manhours = machine.get_number_of_manhours_for_service().magnitude
+            required_number_of_manhours += manhours * working_hours * quantity
+        
+        #доступно человекочасов
+        available_manhours=self.my_asset.staff.get_number_of_manhours_for_mining()
+        #доступно человекочасов с учтетом сверхурочки
+        #доступно человекочасов с учетом травм
+        
+        percentage_of_equipment_use = min(1,
+            available_manhours.magnitude
+            /required_number_of_manhours.magnitude)
+        
+        #мощность добычи с учетом наличия персонала
+        capacity = potential_capacity * percentage_of_equipment_use
+        # мощность добычи с учетом простоев из-за погоды
+        # capacity = capacity * (1- )
+            
+        return capacity
     
     def set_amount_of_overtime(self):
         """Сверхурочная работа"""
@@ -1102,7 +1229,40 @@ class Coal_preparation:
     
     def capacity(self):
         """Мощность обогащения угля"""
-        pass
+        working_hours = self.my_asset.my_world.get_working_hours_per_round()
+        # overtime_hours = self.my_asset.my_world.get_overtime_hours_per_round()
+        
+        equipment_fleet = self.my_asset.equipment_fleet
+        mining_equipment = equipment_fleet.get_list_of_preparation_equipment()
+        
+        #потенциальная мощность
+        potential_capacity = Q_(0,'ton')
+        # необходимо человекочасов для обеспечения максимальной мощности
+        required_number_of_manhours = Q_(0.01,'hour')
+        # эффект увеличени мощности е
+        power_increase_effect = 1
+        
+        for line in mining_equipment:
+            quantity = line.get_quantity().magnitude
+            capacity = line.get_power() * working_hours * power_increase_effect
+            potential_capacity += capacity * quantity 
+            
+            manhours = line.get_number_of_manhours_for_service().magnitude
+            required_number_of_manhours += manhours * working_hours * quantity
+        
+        #доступно человекочасов
+        available_manhours=self.my_asset.staff.get_number_of_manhours_for_preparation()
+        #доступно человекочасов с учтетом сверхурочки
+        #доступно человекочасов с учетом травм
+        
+        percentage_of_equipment_use = min(1,
+            available_manhours.magnitude
+            /required_number_of_manhours.magnitude)
+        
+        #мощность добычи с учетом наличия персонала
+        capacity = potential_capacity * percentage_of_equipment_use
+            
+        return capacity
     
     def set_amount_of_overtime(self):
         """Сверхурочная работа"""
@@ -1246,6 +1406,7 @@ class Equipment_fleet:
     
     def list_of_equipment_need_to_buy(self) -> dict:
         """Список покупок
+        
         list_to_buy = {
             'name': Q_(1, 'count')
             }
@@ -1253,17 +1414,20 @@ class Equipment_fleet:
         list_to_buy = {}
         
         amount_of_equipment = self.get_amount_of_equipment()
-        for name, target_amount in self.get_target_amount_of_equipment():
+        for name,target_amount in self.get_target_amount_of_equipment().items():
             if name in amount_of_equipment:
-                difference = target_amount - amount_of_equipment[name]
-                list_to_buy[name] = max(difference, 0)
+                amount_of_that_equipment = amount_of_equipment[name]
             else:
-                list_to_buy[name] = target_amount
-        
+                amount_of_that_equipment = Q_(0, 'count')
+                
+            difference = target_amount - amount_of_that_equipment
+            if difference > Q_(0,'count'): 
+                list_to_buy[name] = difference
+                
         return list_to_buy
     
     def list_of_equipment_need_to_sale(self) -> dict:
-        """Списко на продажу
+        """Список на продажу
         
         list_to_sale = {
             'name': Q_(1, 'count')
@@ -1281,18 +1445,66 @@ class Equipment_fleet:
         
         return list_to_sale
     
-    def purchase(self):
-        """Закупка оборудования"""
+    def purchase(self) -> int:
+        """Закупка оборудования
+        
+        Возвращает сумму затрат на закупку (purchase_costs)
+        """
         market = self.my_asset.my_region.equipment_market
-        for name, amount in self.list_of_equipment_need_to_buy():
+        purchase_costs = 0
+        for name, amount in self.list_of_equipment_need_to_buy().items():
             shopping_list = market.get_list_of_equipment_for_sale(
                 purchase_name = name, 
                 amount = amount)
             for position in shopping_list:
-                self.my_asset.my_bank.trade_deal(
-                    buyer = self.my_asset, 
-                    product = position)
+                try:
+                    self.my_asset.my_bank.trade_deal(
+                        buyer = self.my_asset, 
+                        product = position)
+                    purchase_costs += position.get_cost()
+                except:
+                    print(f'"{position.get_name()}" was not bought ')
+                
+        return purchase_costs
+    
+    def sale_of_equipment(self) -> int:
+        """Продажа техники
+        Возвращает велечину выручки с продаж
+        """
+        return 0
 
+
+class Werehouse:
+    
+    def __init__(self, my_asset: Coal_mining_asset):
+        self.my_asset = my_asset
+    
+    def amount_of_coal(self) -> Q_:
+        coal_list = self.my_asset.get_coal_list()
+        amount = Q_(0,'ton')
+        for coal in coal_list:
+            amount += coal.get_quantity()
+        return amount
+        
+    def free_capacity(self) -> Q_:
+        return Q_(100_000,'ton')
+
+class Transport_infrastructure:
+    
+    def __init__(self, my_asset: Coal_mining_asset):
+        self.my_asset = my_asset
+    
+    def capacity(self) -> Q_:
+        return Q_(100_000, 'ton')
+
+
+class Sales_department:
+    
+    def __init__(self, my_asset: Coal_mining_asset):
+        self.my_asset = my_asset
+    
+    def capacity(self) -> Q_:
+        return Q_(200_000, 'ton')
 
 class Managers:
     
@@ -1343,13 +1555,26 @@ class Staff:
         self.my_asset = my_asset
     
     
-    def qualifications() -> dict:
+    def qualifications(self) -> dict:
         """ """
         pass
     
-    def number_of_staff() -> dict:
+    def get_number_of_staff(self) -> dict:
         """ """
-        pass
+        staff = { 
+            'mining_staff': Q_(100, 'count'),
+            'preparation_staff': Q_(100, 'count')}
+        return staff
+    
+    def get_number_of_manhours_for_mining(self) -> Q_:
+        working_hours = self.my_asset.my_world.get_working_hours_per_round()
+        number_of_mining_staff = self.get_number_of_staff()['mining_staff']
+        return number_of_mining_staff.magnitude * working_hours 
+    
+    def get_number_of_manhours_for_preparation(self) -> Q_:
+        working_hours = self.my_asset.my_world.get_working_hours_per_round()
+        number_of_mining_staff = self.get_number_of_staff()['preparation_staff']
+        return number_of_mining_staff.magnitude * working_hours 
     
     def downtime_due_to_staff_errors(self):
         """"""

@@ -10,6 +10,7 @@ def main():
         'name': 'Game_1',
         'hours_per_round': 2016,
         'working_hours_per_round': 480,
+        'overtime_hours_per_round': 128,
         'rounds_per_year': 4,
         'regions':[
             {
@@ -21,13 +22,13 @@ def main():
                         'balance': 0, 
                         'price': 70_000,
                         'initial_investment': 10_000,
-                        'estimated_coal_supply': 1_000_000},
+                        'estimated_coal_supply': 1_000_000_000},
                     {
                         'name': 'B', 
                         'balance': 0, 
                         'price': 45_000,
                         'initial_investment': 10_000,
-                        'estimated_coal_supply': 700_000}]
+                        'estimated_coal_supply': 700_000_000}]
                 },
             {
                 'name': 'West_', 
@@ -38,7 +39,7 @@ def main():
                         'balance': 0, 
                         'price': 20_000,
                         'initial_investment': 20_000,
-                        'estimated_coal_supply': 500_000}]
+                        'estimated_coal_supply': 600_000_000}]
                 }
             ]
         }
@@ -69,7 +70,7 @@ def main():
     
 
     company_1.buy(assets['C'])
-    print(assets['C'].get_owner().get_name())
+    # print(assets['C'].get_owner().get_name())
     
     assets['C'].start_asset()
     asset_c = assets['C']
@@ -84,6 +85,8 @@ def main():
     
     asset_c.equipment_fleet.amount_of_equipment_available_for_buy()
     asset_c.equipment_fleet.set_target_amount_of_equipment(shoping_list)
+    
+    company_1.confirm_actions()
     
     company_1.get_company_status()
     
