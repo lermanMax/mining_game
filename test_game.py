@@ -3,8 +3,7 @@ from mining_company_lib import (
     Autonomous_organization, Q_)
 
 
-
-def main():
+if __name__ == "__main__":
     
     world_parameters = {
         'name': 'Game_1',
@@ -65,7 +64,7 @@ def main():
                   asset.get_product_status())
         
     print()
-    company_1 = w.add_company('RosPromMining', 100_000)
+    company_1 = w.add_company('RosPromMining', 1_000_000)
     print()
     
 
@@ -78,18 +77,18 @@ def main():
     
     company_1.confirm_actions()
     
-    shoping_list = {
+    target_list = {
         'Mining_equipment_class_C': Q_(4, 'count'), 
         'Preparation_line': Q_(1, 'count')
         }
     
-    asset_c.equipment_fleet.amount_of_equipment_available_for_buy()
-    asset_c.equipment_fleet.set_target_amount_of_equipment(shoping_list)
+    # asset_c.equipment_fleet.get_amount_of_equipment()
+    # asset_c.equipment_fleet.amount_of_equipment_available_for_buy()
+    # asset_c.my_region.equipment_market.amount_of_equipment_available_for_sale()
     
-    company_1.confirm_actions()
+    # asset_c.equipment_fleet.set_target_amount_of_equipment(target_list)
+    # asset_c.invest_money(200_000)
     
-    company_1.get_company_status()
+    # company_1.confirm_actions()
     
-
-if __name__ == "__main__":
-    main()
+    # company_1.get_company_status()

@@ -397,9 +397,10 @@ class Company(Entity):
     
     def _collect_profit_from_assets(self):
         total_profit = 0
-        asset_list = [p for p in self.get_property_list() if type(p) is Asset]
+        property_list = self.get_property_list()
+        asset_list = [p for p in property_list if issubclass(type(p), Asset)]
         for asset in asset_list:
-            amount_of_profit = asset.get_balance()
+            amount_of_profit = asset.get_last_profit()
             if amount_of_profit > 0:
                 total_profit += amount_of_profit
                 self.my_world.bank.transaction(
@@ -628,6 +629,8 @@ class Asset(Product, Entity):
         self.initial_investment = initial_investment
         self.my_region = region
         self._asset_status = Asset.not_started_status
+        
+        self._last_profit = 0
 
     def can_be_changed(self) -> bool:
         return self.get_asset_status() == Asset.work_status
@@ -641,6 +644,9 @@ class Asset(Product, Entity):
             print(f'Asset status has been changed to "{new_status}"')
         else:
             raise ValueError('wrong status')
+    
+    def get_last_profit(self) -> int:
+        return self._last_profit
     
     def start_asset(self):
         if not self.can_owner_make_changes(): return
@@ -665,9 +671,14 @@ class Asset(Product, Entity):
         self.my_world.bank.put_money(
             payee = self, 
             amount_of_money = profit)
+        self._save_profit(profit)
+    
+    
+    def _save_profit(self, profit):
         print(f'Asset "{self.get_name()}" made a profit: {profit}$')
-        self._pay_income_tax(profit)
+        amount_of_income_tax = self._pay_income_tax(profit)
         print(f'Balance of asset "{self.get_name()}": {self.get_balance()}$')
+        self._last_profit = profit - amount_of_income_tax
         
     
     def _pay_income_tax(self, profit) -> int:
@@ -686,6 +697,14 @@ class Asset(Product, Entity):
     def invest_money(self, amount_of_money: int):
         if not self.can_owner_make_changes(): return
         if not self.can_be_changed(): return
+        try:
+            self.my_bank.transaction(
+                payer = self.get_owner(), 
+                payee = self, 
+                amount_of_money = amount_of_money)
+            print(f'Balance "{self.get_name()}": {self.get_balance()}$')
+        except:
+            print('Money was not invested')
         pass
 
 
@@ -1013,9 +1032,7 @@ class Coal_mining_asset(Asset):
         
         #прибыль
         profit = proceeds - costs
-        print(f'Asset "{self.get_name()}" made a profit: {profit}$')
-        self._pay_income_tax(profit)
-        print(f'Balance of asset "{self.get_name()}": {self.get_balance()}$')    
+        self._save_profit(profit)    
     
     
     def _proceeds(self, amount_of_coal_that_was_delivered: Q_) -> int:
@@ -1037,7 +1054,7 @@ class Coal_mining_asset(Asset):
             print(f'Costs of "{name}": {amount}$')
             costs += amount
         
-        return 0
+        return costs
     
     def _purchase(self) -> dict:
         """Закупки для всех отделов актива
@@ -1047,7 +1064,7 @@ class Coal_mining_asset(Asset):
             }
         """
         purchase_costs = {}
-        purchase_costs['equipment_fleet'] = self.equipment_fleet.purchase()
+        purchase_costs['equipment_fleet'] = self.equipment_fleet._purchase()
         
         return purchase_costs
     
@@ -1154,6 +1171,7 @@ class Coal_mining_asset(Asset):
         #удалось добыть угля
         amount_of_coal_that_was_mined = min(
             production_capacity, limit_for_production)
+        print(f'Asset "{self.get_name()}" produced coal: {amount_of_coal_that_was_mined} ')
         self._add_coal(amount_of_coal_that_was_mined)
         #Всего угля в наличии
         amount_of_coal_available = (
@@ -1292,7 +1310,7 @@ class Equipment_fleet:
     def get_list_of_mining_equipment(self) -> set:
         list_of_mining_equipment = set()
         for product in self.my_asset.get_property_list():
-            if product is Mining_machine:
+            if type(product) is Mining_machine:
                 list_of_mining_equipment.add(product)
                 
         return list_of_mining_equipment
@@ -1300,7 +1318,7 @@ class Equipment_fleet:
     def get_list_of_preparation_equipment(self) -> set:
         list_of_preparation_equipment = set()
         for product in self.my_asset.get_property_list():
-            if product is Preparation_line:
+            if type(product) is Preparation_line:
                 list_of_preparation_equipment.add(product)
                 
         return list_of_preparation_equipment
@@ -1445,7 +1463,7 @@ class Equipment_fleet:
         
         return list_to_sale
     
-    def purchase(self) -> int:
+    def _purchase(self) -> int:
         """Закупка оборудования
         
         Возвращает сумму затрат на закупку (purchase_costs)
@@ -1606,14 +1624,3 @@ class HR:
         pass
     
 
-                    
-                    
-                
-            
-    
-    
-    
-    
-    
-    
-    
