@@ -1008,7 +1008,8 @@ class Coal_mining_asset(Asset):
         self.coal_preparation = Coal_preparation(self)
         self.equipment_fleet = Equipment_fleet(self)
         self.staff = Staff(self)
-        self.managers = Managers(self)
+        self.managers = Specialists(self)
+        self.hr = HR(self)
         self.werehouse = Werehouse(self)
         self.transport_infrastructure = Transport_infrastructure(self)
         self.sales_department = Sales_department(self)
@@ -1524,7 +1525,7 @@ class Sales_department:
     def capacity(self) -> Q_:
         return Q_(200_000, 'ton')
 
-class Managers:
+class Specialists:
     
     def __init__(self, my_asset: Coal_mining_asset):
         self.my_asset = my_asset
@@ -1547,21 +1548,21 @@ class Managers:
         """Простоии из за ошибок управления"""
         pass
     
-    def set_target_number_of_management(self):
+    def set_target_number_of_specialists(self):
         """ """
         if not self.my_asset.can_owner_make_changes(): return
         pass
     
-    def limiting_target_number_of_management(self) -> dict:
+    def limiting_target_number_of_specialist(self) -> dict:
         """ """
         pass
     
-    def change_working_conditions_for_managers(self):
+    def change_working_conditions_for_specialists(self):
         """ """
         if not self.my_asset.can_owner_make_changes(): return
         pass
     
-    def working_conditions_for_managers(self):
+    def working_conditions_for_specialist(self):
         """ """
         pass
 
@@ -1569,44 +1570,112 @@ class Managers:
 
 class Staff:
     
+    base_wc = 'base'
+    medium_wc = 'medium'
+    comfort_wc = 'comfort'
+    
+    dict_of_working_conditions_factor = {
+        base_wc: 0.15,
+        medium_wc: 0.07,
+        comfort_wc: 0.03}
+    
     def __init__(self, my_asset: Coal_mining_asset):
         self.my_asset = my_asset
-    
+        
+        self._number_of_staff = {
+            'mining_staff': Q_(0, 'count'),
+            'preparation_staff': Q_(0, 'count')}
+        
+        self._qualification_of_staff = {
+            'mining_staff': 0.5,
+            'preparation_staff': 0.5}
+        
+        self._target_number_of_staff = {}
+        
+        self._working_conditions = Staff.base_wc
+        
     
     def qualifications(self) -> dict:
         """ """
-        pass
+        return self._qualification_of_staff.copy()
     
     def get_number_of_staff(self) -> dict:
         """ """
-        staff = { 
-            'mining_staff': Q_(100, 'count'),
-            'preparation_staff': Q_(100, 'count')}
-        return staff
+        return self._namber_of_staff.copy()
     
     def get_number_of_manhours_for_mining(self) -> Q_:
         working_hours = self.my_asset.my_world.get_working_hours_per_round()
-        number_of_mining_staff = self.get_number_of_staff()['mining_staff']
-        return number_of_mining_staff.magnitude * working_hours 
+        number_of_staff = self._number_of_mining_staff.magnitude
+        return number_of_staff * working_hours 
     
     def get_number_of_manhours_for_preparation(self) -> Q_:
         working_hours = self.my_asset.my_world.get_working_hours_per_round()
-        number_of_mining_staff = self.get_number_of_staff()['preparation_staff']
-        return number_of_mining_staff.magnitude * working_hours 
+        number_of_staff = self._number_of_preparation_staff.magnitude 
+        return number_of_staff * working_hours 
     
     def downtime_due_to_staff_errors(self):
         """"""
         pass
+        
     
-    def set_target_number_of_staff(self):
-        """ """
+    def set_target_number_of_staff(self, target_number: dict):
+        """ 
+        
+        target_nambers ={
+            'name': Q_(1, 'count')
+            }
+        """
         if not self.my_asset.can_owner_make_changes(): return
-        pass
+        if not self.my_asset.can_be_changed(): return
+        
+        limit = self.limiting_target_number_of_staff()
+        try:
+            for name, amount in target_number.items():
+                if not (limit[name]['max_limit'] 
+                        >= amount 
+                        >= limit[name]['min_limit']):
+                    raise ValueError(
+                        'target_number_of_staff out of limits')
+        except:
+            return
+        
+        for name, amount in target_number.items():
+            self._target_namber_of_staff[name] = amount
+    
     
     def limiting_target_number_of_staff(self) -> dict:
         """ """
-        pass
+        result = {}
+        
+        hr = self.my_asset.hr
+        
+        available_for_hiring = hr.number_of_staff_available_for_hiring()
+        number_of_staff = self.get_number_of_staff()
+        
+        set_of_names = set() 
+        set_of_names.update(
+            set(available_for_hiring),
+            set(number_of_staff))
+        
+        for name in set_of_names:
+            limit_dict = {'min_limit': Q_(0,'count')}
+            if (name in number_of_staff
+                and name in available_for_hiring):
+                limit_dict['max_limit'] = (available_for_hiring[name]
+                                           + number_of_staff[name])
+            elif name in available_for_hiring:
+                limit_dict['max_limit'] = available_for_hiring[name]
+            else:
+                limit_dict['max_limit'] = number_of_staff[name]
+            result[name] = limit_dict
+        return result
     
+    
+    def set_working_conditions(self, new_wc: str):
+        """Установить уровень условий труда"""
+        if not new_wc in Staff.dict_of_working_conditions_factor: return
+        self._working_conditions = new_wc
+        
     
 
 class HR:
@@ -1615,12 +1684,17 @@ class HR:
         self.my_asset = my_asset
     
     
-    def number_of_managers_available_for_hire():
+    def number_of_specialists_available_for_hiring():
         """ """
+        
         pass
     
-    def number_of_staff_available_for_hire():
+    def number_of_staff_available_for_hiring(self):
         """ """
-        pass
+        staff = { 
+            'mining_staff': Q_(20, 'count'),
+            'preparation_staff': Q_(20, 'count')}
+        return staff
+        
     
 
