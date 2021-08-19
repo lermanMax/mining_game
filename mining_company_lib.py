@@ -1579,6 +1579,11 @@ class Staff:
         medium_wc: 0.07,
         comfort_wc: 0.03}
     
+    dict_of_working_conditions_price = {
+        base_wc: 10,
+        medium_wc: 20,
+        comfort_wc: 35}
+    
     def __init__(self, my_asset: Coal_mining_asset):
         self.my_asset = my_asset
         
@@ -1593,6 +1598,7 @@ class Staff:
         self._target_number_of_staff = {}
         
         self._working_conditions = Staff.base_wc
+        self._working_conditions_of_last_round = Staff.base_wc 
         
     
     def qualifications(self) -> dict:
@@ -1605,13 +1611,25 @@ class Staff:
     
     def get_number_of_manhours_for_mining(self) -> Q_:
         working_hours = self.my_asset.my_world.get_working_hours_per_round()
-        number_of_staff = self._number_of_mining_staff.magnitude
+        number_of_staff = self._number_of_staff['mining_staff'].magnitude
         return number_of_staff * working_hours 
     
     def get_number_of_manhours_for_preparation(self) -> Q_:
         working_hours = self.my_asset.my_world.get_working_hours_per_round()
-        number_of_staff = self._number_of_preparation_staff.magnitude 
+        number_of_staff = self._number_of_staff['preparation_staff'].magnitude 
         return number_of_staff * working_hours 
+    
+    def end_of_round_actions(self):
+        """Действия в конце раунда, перед началом следующего
+        
+        1. Убыль персонала
+        """
+        wc = self._working_conditions
+        factor = Staff.dict_of_working_conditions_factor[wc]
+        for name, number in self._number_of_staff.items():
+            loss = round(number * factor)
+            self._number_of_staff[name] = max(number - loss,0)
+        
     
     def downtime_due_to_staff_errors(self):
         """"""
@@ -1619,7 +1637,7 @@ class Staff:
         
     
     def set_target_number_of_staff(self, target_number: dict):
-        """ 
+        """ Установить целевое число персонала
         
         target_nambers ={
             'name': Q_(1, 'count')
@@ -1673,8 +1691,35 @@ class Staff:
     
     def set_working_conditions(self, new_wc: str):
         """Установить уровень условий труда"""
+        if not self.my_asset.can_owner_make_changes(): return
+        if not self.my_asset.can_be_changed(): return
         if not new_wc in Staff.dict_of_working_conditions_factor: return
         self._working_conditions = new_wc
+    
+    def _purchase(self) -> int:
+        """Затраты на условия труда"""
+        full_number_of_staff = Q_(0,'count')
+        for name, number in self.get_number_of_staff.items():
+            full_number_of_staff += number
+        
+        wc_price = Staff.dict_of_working_conditions_price[self._working_conditions]
+        wc_costs = full_number_of_staff.magnitude * wc_price
+        self.my_asset.my_bank.transaction(
+                payer = self.my_asset,
+                payee = self.my_asset.my_region,
+                amount_of_money = wc_costs)
+        
+        return wc_costs
+    
+    
+    def hiring(self):
+        
+        number_of_staff = self.get_number_of_staff()
+        for name, target_num in self._target_number_of_staff.items():
+            if target_num > number_of_staff[name]:
+                
+        
+        
         
     
 
