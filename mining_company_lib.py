@@ -259,6 +259,7 @@ class Entity:
     
     Имеет баланс
     Владеет имуществом
+    Включает в себя участников
     """
     
     def __init__(
@@ -273,6 +274,7 @@ class Entity:
         self._balance = balance
         
         self._property_list = set()
+        self._list_of_participants = set()
     
     def get_name(self) -> str:
         return self._name
@@ -288,6 +290,15 @@ class Entity:
     
     def get_property_list(self) -> set:
         return self._property_list.copy()
+    
+    def remove_participant(self, participant: Person):
+        self._list_of_participants.remove(participant)
+    
+    def add_participant(self, participant: Person):
+        self._list_of_participants.add(participant)
+    
+    def get_list_of_participants(self) -> set:
+        return self._list_of_participants.copy()
     
 
 class Government(Entity, Autonomous_organization):
@@ -442,6 +453,7 @@ class Region(Entity, Autonomous_organization):
         self._list_of_assets = set()
         
         self.equipment_market = Equipment_market('Equipment_market', self)
+        self.labor_market = Labor_market('Labor_market', self)
     
     def get_list_of_assets(self):
         return self._list_of_assets.copy()
@@ -976,6 +988,203 @@ class Equipment_market(Entity, Autonomous_organization):
                 if not how_much_more_is_needed: break
         
         return result
+
+
+class Person:
+    
+    vocation_education = 'vocation_education'
+    higher_education = 'higher_education'
+    list_of_types_of_education = (vocation_education, higher_education)
+    
+    mining_profession = 'miner'
+    preparation_profession = 'line_worker' 
+    manager_profession = 'manager'
+    list_of_types_of_profession = (
+            mining_profession,
+            preparation_profession,
+            manager_profession)
+    
+    def __init__(
+            self,
+            name: str,
+            region: Region,
+            organization: Entity):
+        
+        self._name = name
+        self._place_of_birth = region
+        self._place_of_residence = region
+        self._age = 20
+        
+        self._work_experience = {}
+        """
+        _work_experience = {
+                profession_name:{
+                    'years_of_experience': 0,
+                    'qualification': 0,
+                    'education': ''
+                    },
+                
+                }
+        """
+        self._my_organization = organization 
+        
+    def get_name(self):
+        return self._name
+    
+    def change_organization(self, new_organization: Entity):
+        self._my_organization.remove_participant(self)
+        self._my_organization = new_organization
+        self._my_organization.add_participant(self)
+    
+    def get_work_experience(self, profession_name: str):
+        if not profession_name in self._work_experience:
+            return None
+        return self._work_experience[profession_name].copy()
+    
+    def add_work_experience(
+            self, 
+            profession_name: str, 
+            new_years_of_experience: float = 0,
+            new_poins_in_qualification: float = 0,
+            education: str = ''):
+        if not profession_name in Person.list_of_types_of_profession:
+            raise ValueError(f'profession_name "{profession_name}" not exist')
+        if not education in Person.list_of_types_of_education:
+            raise ValueError(f'education "{education}" not exist')
+        if not profession_name in self._work_experience:
+            dict_of_exp = {
+                    'years_of_experience': 0,
+                    'qualification': 0,
+                    'education': ''}
+            self._work_experience[profession_name] = dict_of_exp
+        
+        self._work_experience[profession_name]['years_of_experience'] += (
+                new_years_of_experience)
+        self._work_experience[profession_name]['qualification'] += (
+                new_poins_in_qualification)
+        self._work_experience[profession_name]['education'] = education
+    
+    def change_organization(self, new_organization: Entity):
+        self._my_organization.remove_participant(self)
+        self._my_organization = new_organization
+        self._my_organization.add_participant(self)
+            
+        
+
+class Labor_market(Entity, Autonomous_organization):
+    """Рынок труда
+    
+    """
+    def __init__(
+            self, 
+            name: str, 
+            region: Region,
+            balance: int = 0):
+        
+        Entity.__init__(
+            self,
+            name = name, 
+            world = region.my_world, 
+            balance = balance)
+        Autonomous_organization.__init__(
+            self, world=region.my_world)
+        
+        self.my_region = region
+        
+    
+    def features_of_new_persons(self) -> dict:
+        features  = {
+            Person.mining_profession: {
+                'qualification': 0.5,
+                'education': Person.vocation_education,
+                'quantity': Q_(20, 'count')
+                },
+            Person.preparation_profession: {
+                'qualification': 0.5,
+                'education': Person.vocation_education,
+                'quantity': Q_(20, 'count')
+                },
+            Person.manager_profession: {
+                'qualification': 0.5,
+                'education': Person.higher_education,
+                'quantity': Q_(5, 'count')
+                },
+            
+            }
+        return features
+    
+    def start_activities(self):
+        for profession_name, features in self.features_of_new_persons().items():
+            quantity = features['quantity'].magnitude
+            for _ in range(quantity):
+                new_person = Person(
+                        name='Ivan', 
+                        region=self.my_region, 
+                        organization=self)
+                new_person.add_work_experience(
+                        profession_name=profession_name,
+                        new_poins_in_qualification=features['qualification'],
+                        education=features['education'])
+        
+    
+    def _number_of_candidates(self) -> dict:
+        """Сколько человек ищут работу
+        {
+            'profession_name': Q_(1, 'count')
+            }
+        
+        Если у человека есть опыт в нескольких проффессиях, 
+        то он будет добавлен в списки по всем 
+        """
+        result = {}
+        for profession in Person.list_of_types_of_profession:
+            result[profession] = Q_(0,'count')
+            
+        for person in self.get_list_of_participants():
+            for profession in Person.list_of_types_of_profession:
+                if not person.get_work_experience(profession): 
+                    next
+                else:
+                    result[profession] += Q_(1, 'count')           
+        return result
+    
+    
+    def number_of_candidates_available_for_hire(self) -> dict:
+        """Cколько человек готовы идти в одну компанию
+        {
+            'name': Q_(1, 'count')
+            }
+        """
+        amount_of_assets = len(self.my_region.get_list_of_started_assets())
+        result = {}
+        for name, number_of_candidates in self._number_of_candidates().items():
+            number = number_of_candidates//amount_of_assets
+            if number == 0: next 
+            result[name] = Q_(number.magnitude, number_of_candidates.units) 
+        return result
+    
+    
+    def get_list_of_candidates_for_hiring(
+            self, 
+            profession_name: str, 
+            number: Q_) -> set:
+    
+        result = set()
+        how_much_more_is_needed = number
+        
+        for person in self.get_list_of_participants():
+            if not person.get_work_experience(profession_name): 
+                next
+            else:
+                result.add(person)
+                how_much_more_is_needed -= Q_(1,'count')
+                if how_much_more_is_needed == Q_(0,'count'):
+                    break
+        
+        return result
+                
+        
+    
                 
             
 class Coal_mining_asset(Asset):
@@ -1525,6 +1734,7 @@ class Sales_department:
     def capacity(self) -> Q_:
         return Q_(200_000, 'ton')
 
+
 class Specialists:
     
     def __init__(self, my_asset: Coal_mining_asset):
@@ -1714,9 +1924,12 @@ class Staff:
     
     def hiring(self):
         
+        hr = self.my_asset.hr
         number_of_staff = self.get_number_of_staff()
         for name, target_num in self._target_number_of_staff.items():
             if target_num > number_of_staff[name]:
+                hr.hiring()
+                
                 
         
         
@@ -1736,10 +1949,15 @@ class HR:
     
     def number_of_staff_available_for_hiring(self):
         """ """
-        staff = { 
-            'mining_staff': Q_(20, 'count'),
-            'preparation_staff': Q_(20, 'count')}
+        market = self.my_asset.my_region.labor_market
+        staff = market.number_of_candidates_available_for_hire()
         return staff
+    
+    def hiring(self, name: str, number: Q_):
+        """Найм персонала и специалистов
+        
+        Вычитает людей с рынка труда и добавляет в актив 
+        """
         
     
 
