@@ -990,6 +990,7 @@ class Equipment_market(Entity, Autonomous_organization):
         return result
 
 
+
 class Person:
     
     vocation_education = 'vocation_education'
@@ -1149,10 +1150,10 @@ class Labor_market(Entity, Autonomous_organization):
         return result
     
     
-    def number_of_candidates_available_for_hire(self) -> dict:
-        """Cколько человек готовы идти в одну компанию
+    def number_of_candidates_available_for_hire(self, asset: Asset) -> dict:
+        """Cколько человек готовы идти в этот актив
         {
-            'name': Q_(1, 'count')
+            'profession_name': Q_(1, 'count')
             }
         """
         amount_of_assets = len(self.my_region.get_list_of_started_assets())
@@ -1181,12 +1182,12 @@ class Labor_market(Entity, Autonomous_organization):
                 if how_much_more_is_needed == Q_(0,'count'):
                     break
         
-        return result
+        return result        
+         
                 
-        
-    
-                
-            
+
+
+
 class Coal_mining_asset(Asset):
     """ Угледобывающий актив
     
@@ -1736,18 +1737,43 @@ class Sales_department:
 
 
 class Specialists:
+
+    list_of_proffessions = (Person.manager_profession,)
     
     def __init__(self, my_asset: Coal_mining_asset):
         self.my_asset = my_asset
+
+        self._managers = set()
     
     
     def qualifications() -> dict:
         """ """
         pass
     
-    def number_of_staff() -> dict:
+    def get_number_of_staff(self) -> dict:
         """ """
-        pass
+        result = {
+            Person.manager_profession: Q_(len(self._managers),'count')
+        }
+        return result
+
+    def get_list_of(self, profession_name: str):
+        if profession_name is Person.manager_profession:
+            return self._managers
+    
+    def add_employee(self, profession_name: str, person: Person):
+        profession_name_dict = {
+            Person.manager_profession: self._managers
+        }
+        if profession_name not in profession_name_dict: 
+            raise ValueError('profession_name incorrect')
+        profession_name_dict[profession_name].add(person)
+    
+    def remove_employee(self, person: Person):
+        if person in self._managers:
+            self._managers.remove(person)
+        else:
+            raise ValueError('person is not in Specialists')
     
     def increasing_efficiency_of_managers(self):
         """Повышение эффективности менеджеров"""
@@ -1794,16 +1820,16 @@ class Staff:
         medium_wc: 20,
         comfort_wc: 35}
     
+    list_of_proffessions = (
+        Person.mining_profession,
+        Person.preparation_profession
+    )
+    
     def __init__(self, my_asset: Coal_mining_asset):
         self.my_asset = my_asset
         
-        self._number_of_staff = {
-            'mining_staff': Q_(0, 'count'),
-            'preparation_staff': Q_(0, 'count')}
-        
-        self._qualification_of_staff = {
-            'mining_staff': 0.5,
-            'preparation_staff': 0.5}
+        self._mining_staff = set()
+        self._preparation_staff = set()
         
         self._target_number_of_staff = {}
         
@@ -1817,29 +1843,45 @@ class Staff:
     
     def get_number_of_staff(self) -> dict:
         """ """
-        return self._namber_of_staff.copy()
+        result = {
+            Person.mining_profession: Q_(len(self._mining_staff),'count'),
+            Person.preparation_profession: Q_(len(self._preparation_staff),'count')
+        }
+        return result
+    
+    def get_list_of(self, profession_name: str):
+        if profession_name is Person.mining_profession:
+            return self._mining_staff
+        elif profession_name is Person.preparation_profession:
+            return self._preparation_staff
+    
+    def add_employee(self, profession_name: str, person: Person):
+        profession_name_dict = {
+            Person.mining_profession: self._mining_staff,
+            Person.preparation_profession: self._preparation_staff,
+        }
+        if profession_name not in profession_name_dict: 
+            raise ValueError('profession_name incorrect')
+        profession_name_dict[profession_name].add(person)
+    
+    def remove_employee(self, person: Person):
+        if person in self._mining_staff:
+            self._mining_staff.remove(person)
+        elif person in self._preparation_staff:
+            self._preparation_staff.remove(person)
+        else:
+            raise ValueError('person is not in staff')
     
     def get_number_of_manhours_for_mining(self) -> Q_:
         working_hours = self.my_asset.my_world.get_working_hours_per_round()
-        number_of_staff = self._number_of_staff['mining_staff'].magnitude
+        number_of_staff = self.get_number_of_staff()[Person.mining_profession].magnitude
         return number_of_staff * working_hours 
     
     def get_number_of_manhours_for_preparation(self) -> Q_:
         working_hours = self.my_asset.my_world.get_working_hours_per_round()
-        number_of_staff = self._number_of_staff['preparation_staff'].magnitude 
+        number_of_staff = self.get_number_of_staff()[Person.preparation_profession].magnitude 
         return number_of_staff * working_hours 
-    
-    def end_of_round_actions(self):
-        """Действия в конце раунда, перед началом следующего
-        
-        1. Убыль персонала
-        """
-        wc = self._working_conditions
-        factor = Staff.dict_of_working_conditions_factor[wc]
-        for name, number in self._number_of_staff.items():
-            loss = round(number * factor)
-            self._number_of_staff[name] = max(number - loss,0)
-        
+
     
     def downtime_due_to_staff_errors(self):
         """"""
@@ -1850,7 +1892,7 @@ class Staff:
         """ Установить целевое число персонала
         
         target_nambers ={
-            'name': Q_(1, 'count')
+            'profession_name': Q_(1, 'count')
             }
         """
         if not self.my_asset.can_owner_make_changes(): return
@@ -1920,19 +1962,37 @@ class Staff:
                 amount_of_money = wc_costs)
         
         return wc_costs
-    
-    
-    def hiring(self):
+
+    def personnel_management(self):
         
         hr = self.my_asset.hr
         number_of_staff = self.get_number_of_staff()
         for name, target_num in self._target_number_of_staff.items():
             if target_num > number_of_staff[name]:
-                hr.hiring()
-                
-                
+                hr.hiring(
+                    profession_name=name, 
+                    number=target_num - number_of_staff[name]
+                )
+            elif target_num < number_of_staff[name]:
+                hr.dismissal(
+                    profession_name=name, 
+                    number=number_of_staff[name] - target_num
+                )
+    
+    def end_of_round_actions(self):
+        """Действия в конце раунда, перед началом следующего
         
-        
+        1. Убыль персонала
+        """
+        hr = self.my_asset.hr
+        wc = self._working_conditions
+        factor = Staff.dict_of_working_conditions_factor[wc]
+        for profession_name, number in self.get_number_of_staff.items():
+            loss = round(number * factor)
+            hr.departure(
+                profession_name=profession_name,
+                number=loss
+            )    
         
     
 
@@ -1947,17 +2007,64 @@ class HR:
         
         pass
     
-    def number_of_staff_available_for_hiring(self):
-        """ """
+    def number_of_staff_available_for_hiring(self) -> dict:
+        """Cколько человек готовы идти на наш актив
+        {
+            'profession_name': Q_(1, 'count')
+            }"""
         market = self.my_asset.my_region.labor_market
-        staff = market.number_of_candidates_available_for_hire()
+        staff = market.number_of_candidates_available_for_hire(self.my_asset)
         return staff
+
+    def _get_department_for(self, profession_name: str):
+        """Возвращает департамент в который взодят люди этой профессии"""
+        if profession_name in Staff.list_of_proffessions:
+            department = self.my_asset.staff
+        elif profession_name in Specialists.list_of_proffessions:
+            department = self.my_asset.specialists
+        return department
     
-    def hiring(self, name: str, number: Q_):
+    def hiring(self, profession_name: str, number: Q_):
         """Найм персонала и специалистов
         
         Вычитает людей с рынка труда и добавляет в актив 
         """
+        market = self.my_asset.my_region.labor_market
+        list_of_candidates = market.get_list_of_candidates_for_hiring(
+            profession_name=profession_name,
+            number=number
+        )
+        department = self._get_department_for(profession_name)
         
+        for person in list_of_candidates:
+            person.change_organization(self.my_asset)
+            department.add_employee(
+                profession_name=profession_name,
+                person=person 
+            )
     
+    def departure(self, profession_name:str, number: Q_):
+        """Уход сотрудников"""
+        market = self.my_asset.my_region.labor_market
+        department = self._get_department_for(profession_name)
+        counter = number.magnitude 
+        for person in department.get_list_of(profession_name):
+            department.remove_employee()
+            person.change_organization(market)
+            counter -= 1
+            if counter == 0: break
+    
+    def dismissal(self, profession_name:str, number: Q_) -> int:
+        """Увольнение сотрудников
+        """
+        department = self._get_department_for(profession_name)
+        self.departure(profession_name,number=number)
+        dismissal_allowance = 200
+        return number.magnitude * dismissal_allowance
+
+        
+        
+        
+
+
 

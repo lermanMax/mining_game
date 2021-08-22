@@ -2,6 +2,43 @@ from mining_company_lib import (
     Game, World, Government, Region, Bank, Asset, Product, Entity, 
     Autonomous_organization, Q_)
 
+from collections import Mapping, Container
+from sys import getsizeof
+
+ 
+def deep_getsizeof(o, ids):
+    """Find the memory footprint of a Python object
+ 
+    This is a recursive function that drills down a Python object graph
+    like a dictionary holding nested dictionaries with lists of lists
+    and tuples and sets.
+ 
+    The sys.getsizeof function does a shallow size of only. It counts each
+    object inside a container as pointer only regardless of how big it
+    really is.
+ 
+    :param o: the object
+    :param ids:
+    :return:
+    """
+    d = deep_getsizeof
+    if id(o) in ids:
+        return 0
+ 
+    r = getsizeof(o)
+    ids.add(id(o))
+ 
+    if isinstance(o, str) or isinstance(0, str):
+        return r
+ 
+    if isinstance(o, Mapping):
+        return r + sum(d(k, ids) + d(v, ids) for k, v in o.iteritems())
+ 
+    if isinstance(o, Container):
+        return r + sum(d(x, ids) for x in o)
+ 
+    return r
+
 
 if __name__ == "__main__":
     
@@ -81,6 +118,8 @@ if __name__ == "__main__":
         'Mining_equipment_class_C': Q_(4, 'count'), 
         'Preparation_line': Q_(1, 'count')
         }
+    
+    input()
     
     # asset_c.equipment_fleet.get_amount_of_equipment()
     # asset_c.equipment_fleet.amount_of_equipment_available_for_buy()
