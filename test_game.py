@@ -1,43 +1,7 @@
 from mining_company_lib import (
-    Game, World, Government, Region, Bank, Asset, Product, Entity, 
-    Autonomous_organization, Q_)
+    Q_, Game, World, Government, Region, Bank, Asset, Product, Entity, 
+    Autonomous_organization, Person, Labor_market, Staff, Specialists)
 
-from collections import Mapping, Container
-from sys import getsizeof
-
- 
-def deep_getsizeof(o, ids):
-    """Find the memory footprint of a Python object
- 
-    This is a recursive function that drills down a Python object graph
-    like a dictionary holding nested dictionaries with lists of lists
-    and tuples and sets.
- 
-    The sys.getsizeof function does a shallow size of only. It counts each
-    object inside a container as pointer only regardless of how big it
-    really is.
- 
-    :param o: the object
-    :param ids:
-    :return:
-    """
-    d = deep_getsizeof
-    if id(o) in ids:
-        return 0
- 
-    r = getsizeof(o)
-    ids.add(id(o))
- 
-    if isinstance(o, str) or isinstance(0, str):
-        return r
- 
-    if isinstance(o, Mapping):
-        return r + sum(d(k, ids) + d(v, ids) for k, v in o.iteritems())
- 
-    if isinstance(o, Container):
-        return r + sum(d(x, ids) for x in o)
- 
-    return r
 
 
 if __name__ == "__main__":
@@ -114,20 +78,42 @@ if __name__ == "__main__":
     
     company_1.confirm_actions()
     
-    target_list = {
+    target_equipment = {
         'Mining_equipment_class_C': Q_(4, 'count'), 
         'Preparation_line': Q_(1, 'count')
         }
     
-    input()
     
     # asset_c.equipment_fleet.get_amount_of_equipment()
     # asset_c.equipment_fleet.amount_of_equipment_available_for_buy()
     # asset_c.my_region.equipment_market.amount_of_equipment_available_for_sale()
     
-    # asset_c.equipment_fleet.set_target_amount_of_equipment(target_list)
-    # asset_c.invest_money(200_000)
+    asset_c.equipment_fleet.set_target_amount_of_equipment(target_equipment)
+    asset_c.invest_money(200_000)
     
-    # company_1.confirm_actions()
+    #input()
+    company_1.confirm_actions()
     
-    # company_1.get_company_status()
+    target_profession = {
+        Person.mining_profession:Q_(30,'count'), 
+        Person.preparation_profession:Q_(30,'count')
+    }
+
+    asset_c.staff.set_target_number_of_staff(target_profession)
+
+    input()
+    company_1.confirm_actions()
+
+    asset_c.staff.set_target_number_of_staff(target_profession)
+    asset_c.staff.set_working_conditions(Staff.comfort_wc)
+
+    input()
+    company_1.confirm_actions()
+
+    target_profession[Person.preparation_profession] -=Q_(15,'count')
+    asset_c.staff.set_target_number_of_staff(target_profession)
+
+    input()
+    company_1.confirm_actions()
+
+    company_1.get_company_status()

@@ -884,17 +884,17 @@ class Equipment_market(Entity, Autonomous_organization):
     def features_of_mining_equipment(self) -> dict:
         features_of_equipment  = {
             'Mining_equipment_class_C': {
-                'power': Q_(50, 'kg/hour'),
+                'power': Q_(250, 'kg/hour'),
                 'manhours_for_service': Q_(2, 'hour'),
                 'price': 14_000,
                 'quantity': Q_(5, 'count')},
             'Mining_equipment_class_B': {
-                'power': Q_(100, 'kg/hour'),
+                'power': Q_(500, 'kg/hour'),
                 'manhours_for_service': Q_(3, 'hour'),
                 'price': 28_000,
                 'quantity': Q_(3, 'count')},
             'Mining_equipment_class_A': {
-                'power': Q_(200, 'kg/hour'),
+                'power': Q_(1000, 'kg/hour'),
                 'manhours_for_service': Q_(2, 'hour'),
                 'price': 70_000,
                 'quantity': Q_(1, 'count')}
@@ -1027,7 +1027,8 @@ class Person:
                 
                 }
         """
-        self._my_organization = organization 
+        self._my_organization = organization
+        self._my_organization.add_participant(self) 
         
     def get_name(self):
         return self._name
@@ -1183,7 +1184,6 @@ class Labor_market(Entity, Autonomous_organization):
                     break
         
         return result        
-         
                 
 
 
@@ -1228,7 +1228,7 @@ class Coal_mining_asset(Asset):
     
     
     def _make_money(self):
-        #закупка
+        #закупки и траты на персонал
         purchase_costs = self._purchase()
         
         #работа актива 
@@ -1240,10 +1240,12 @@ class Coal_mining_asset(Asset):
         #расходы
         costs = self._costs(purchase_costs) 
         
-        
         #прибыль
         profit = proceeds - costs
-        self._save_profit(profit)    
+        self._save_profit(profit)   
+
+        #действия в конце раунда 
+        self.staff.end_of_round_actions() 
     
     
     def _proceeds(self, amount_of_coal_that_was_delivered: Q_) -> int:
@@ -1276,7 +1278,8 @@ class Coal_mining_asset(Asset):
         """
         purchase_costs = {}
         purchase_costs['equipment_fleet'] = self.equipment_fleet._purchase()
-        
+        purchase_costs['personnel_managment'] = self.staff.personnel_management()
+        purchase_costs['staff'] = self.staff._purchase()
         return purchase_costs
     
     def coal_deposit_reserves(self) -> Q_:
@@ -1350,7 +1353,7 @@ class Coal_mining_asset(Asset):
     def asset_work(self) -> Q_:  
         """работа актива
         
-        возвращает количество доставленного угля Q_(10, 'ton')
+        возвращает количество доставленного угля Q_(1, 'ton')
         """
         mining_capacity = self.coal_mining.capacity()
         preparation_capacity = self.coal_preparation.capacity()
@@ -1387,7 +1390,7 @@ class Coal_mining_asset(Asset):
         #Всего угля в наличии
         amount_of_coal_available = (
             amount_of_coal_that_was_mined + amount_of_coal_in_werehouse)
-        #удалось проадть и доставить
+        #удалось продать и доставить
         amount_of_coal_that_was_delivered = min(
             delivery_capacity, amount_of_coal_available)
         return amount_of_coal_that_was_delivered
@@ -1425,7 +1428,7 @@ class Coal_mining:
         
         #доступно человекочасов
         available_manhours=self.my_asset.staff.get_number_of_manhours_for_mining()
-        #доступно человекочасов с учтетом сверхурочки
+        #доступно человекочасов с учетом сверхурочки
         #доступно человекочасов с учетом травм
         
         percentage_of_equipment_use = min(1,
@@ -1851,9 +1854,9 @@ class Staff:
     
     def get_list_of(self, profession_name: str):
         if profession_name is Person.mining_profession:
-            return self._mining_staff
+            return self._mining_staff.copy()
         elif profession_name is Person.preparation_profession:
-            return self._preparation_staff
+            return self._preparation_staff.copy()
     
     def add_employee(self, profession_name: str, person: Person):
         profession_name_dict = {
@@ -1910,7 +1913,7 @@ class Staff:
             return
         
         for name, amount in target_number.items():
-            self._target_namber_of_staff[name] = amount
+            self._target_number_of_staff[name] = amount
     
     
     def limiting_target_number_of_staff(self) -> dict:
@@ -1951,7 +1954,7 @@ class Staff:
     def _purchase(self) -> int:
         """Затраты на условия труда"""
         full_number_of_staff = Q_(0,'count')
-        for name, number in self.get_number_of_staff.items():
+        for name, number in self.get_number_of_staff().items():
             full_number_of_staff += number
         
         wc_price = Staff.dict_of_working_conditions_price[self._working_conditions]
@@ -1963,8 +1966,8 @@ class Staff:
         
         return wc_costs
 
-    def personnel_management(self):
-        
+    def personnel_management(self) -> int:
+        cost = 0
         hr = self.my_asset.hr
         number_of_staff = self.get_number_of_staff()
         for name, target_num in self._target_number_of_staff.items():
@@ -1974,10 +1977,11 @@ class Staff:
                     number=target_num - number_of_staff[name]
                 )
             elif target_num < number_of_staff[name]:
-                hr.dismissal(
+                cost += hr.dismissal(
                     profession_name=name, 
                     number=number_of_staff[name] - target_num
                 )
+        return cost
     
     def end_of_round_actions(self):
         """Действия в конце раунда, перед началом следующего
@@ -1987,14 +1991,16 @@ class Staff:
         hr = self.my_asset.hr
         wc = self._working_conditions
         factor = Staff.dict_of_working_conditions_factor[wc]
-        for profession_name, number in self.get_number_of_staff.items():
+        for profession_name, number in self.get_number_of_staff().items():
             loss = round(number * factor)
+            if not loss: next
             hr.departure(
                 profession_name=profession_name,
                 number=loss
             )    
         
     
+
 
 class HR:
     
@@ -2017,7 +2023,7 @@ class HR:
         return staff
 
     def _get_department_for(self, profession_name: str):
-        """Возвращает департамент в который взодят люди этой профессии"""
+        """Возвращает департамент в который входят люди этой профессии"""
         if profession_name in Staff.list_of_proffessions:
             department = self.my_asset.staff
         elif profession_name in Specialists.list_of_proffessions:
@@ -2049,22 +2055,20 @@ class HR:
         department = self._get_department_for(profession_name)
         counter = number.magnitude 
         for person in department.get_list_of(profession_name):
-            department.remove_employee()
+            department.remove_employee(person)
             person.change_organization(market)
             counter -= 1
             if counter == 0: break
+        print(f'Asset "{self.my_asset.get_name()}" lost {number.magnitude} persons')
     
     def dismissal(self, profession_name:str, number: Q_) -> int:
         """Увольнение сотрудников
+
+        Возвращает затраты на увольнительные пособия
         """
         department = self._get_department_for(profession_name)
         self.departure(profession_name,number=number)
+        print(f'Asset "{self.my_asset.get_name()}" dismiss {number.magnitude} persons')
         dismissal_allowance = 200
-        return number.magnitude * dismissal_allowance
-
-        
-        
-        
-
-
-
+        costs = number.magnitude * dismissal_allowance
+        return costs
