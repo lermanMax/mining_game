@@ -862,9 +862,8 @@ class Preparation_line(Product):
     
 
 class Equipment_market(Entity, Autonomous_organization):
-    """Рынок оборудования
-    
-    """
+    """Рынок оборудования"""
+
     def __init__(
             self, 
             name: str, 
@@ -1074,9 +1073,8 @@ class Person:
         
 
 class Labor_market(Entity, Autonomous_organization):
-    """Рынок труда
-    
-    """
+    """Рынок труда"""
+
     def __init__(
             self, 
             name: str, 
@@ -1218,7 +1216,7 @@ class Coal_mining_asset(Asset):
         self.coal_preparation = Coal_preparation(self)
         self.equipment_fleet = Equipment_fleet(self)
         self.staff = Staff(self)
-        self.managers = Specialists(self)
+        self.specialists = Specialists(self)
         self.hr = HR(self)
         self.werehouse = Werehouse(self)
         self.transport_infrastructure = Transport_infrastructure(self)
@@ -1246,6 +1244,7 @@ class Coal_mining_asset(Asset):
 
         #действия в конце раунда 
         self.staff.end_of_round_actions() 
+        self.specialists.end_of_round_actions()
     
     
     def _proceeds(self, amount_of_coal_that_was_delivered: Q_) -> int:
@@ -1278,8 +1277,10 @@ class Coal_mining_asset(Asset):
         """
         purchase_costs = {}
         purchase_costs['equipment_fleet'] = self.equipment_fleet._purchase()
-        purchase_costs['personnel_managment'] = self.staff.personnel_management()
+        purchase_costs['personnel_managment(staff)'] = self.staff.personnel_management()
         purchase_costs['staff'] = self.staff._purchase()
+        purchase_costs['personnel_managment(managers)'] = self.specialists.personnel_management()
+        purchase_costs['managers'] = self.specialists._purchase()
         return purchase_costs
     
     def coal_deposit_reserves(self) -> Q_:
@@ -1348,6 +1349,9 @@ class Coal_mining_asset(Asset):
                 product = item)
             
         return proceed_from_coal
+    
+    def _downtime(self):
+        return 0.01
         
         
     def asset_work(self) -> Q_:  
@@ -1357,7 +1361,7 @@ class Coal_mining_asset(Asset):
         """
         mining_capacity = self.coal_mining.capacity()
         preparation_capacity = self.coal_preparation.capacity()
-        downtime = 0.01
+        downtime = self._downtime()
         useful_raw_material_ratio = 0.99
         coal_deposit_reserves = self.coal_deposit_reserves()
         
@@ -1742,11 +1746,30 @@ class Sales_department:
 class Specialists:
 
     list_of_proffessions = (Person.manager_profession,)
+
+    base_wc = 'base'
+    medium_wc = 'medium'
+    comfort_wc = 'comfort'
+    
+    dict_of_working_conditions_factor = {
+        base_wc: 0.15,
+        medium_wc: 0.07,
+        comfort_wc: 0.03}
+    
+    dict_of_working_conditions_price = {
+        base_wc: 20,
+        medium_wc: 40,
+        comfort_wc: 70}
     
     def __init__(self, my_asset: Coal_mining_asset):
         self.my_asset = my_asset
 
         self._managers = set()
+        
+        self._target_number_of_staff = {}
+        
+        self._working_conditions = Specialists.base_wc
+        self._working_conditions_of_last_round = Specialists.base_wc 
     
     
     def qualifications() -> dict:
@@ -1787,23 +1810,113 @@ class Specialists:
         """Простоии из за ошибок управления"""
         pass
     
-    def set_target_number_of_specialists(self):
-        """ """
+    def set_target_number_of_staff(self, target_number: dict):
+        """ Установить целевое число специалистов
+        
+        target_nambers ={
+            'profession_name': Q_(1, 'count')
+            }
+        """
         if not self.my_asset.can_owner_make_changes(): return
-        pass
+        if not self.my_asset.can_be_changed(): return
+        
+        limit = self.limiting_target_number_of_staff()
+        try:
+            for name, amount in target_number.items():
+                if not (limit[name]['max_limit'] 
+                        >= amount 
+                        >= limit[name]['min_limit']):
+                    raise ValueError(
+                        'target_number_of_staff out of limits')
+        except:
+            return
+        
+        for name, amount in target_number.items():
+            self._target_number_of_staff[name] = amount
     
-    def limiting_target_number_of_specialist(self) -> dict:
-        """ """
-        pass
     
-    def change_working_conditions_for_specialists(self):
+    def limiting_target_number_of_staff(self) -> dict:
         """ """
+        result = {}
+        
+        hr = self.my_asset.hr
+        
+        available_for_hiring = hr.number_of_staff_available_for_hiring()
+        number_of_staff = self.get_number_of_staff()
+        
+        set_of_names = set() 
+        set_of_names.update(
+            set(available_for_hiring),
+            set(number_of_staff))
+        
+        for name in set_of_names:
+            limit_dict = {'min_limit': Q_(0,'count')}
+            if (name in number_of_staff
+                and name in available_for_hiring):
+                limit_dict['max_limit'] = (available_for_hiring[name]
+                                           + number_of_staff[name])
+            elif name in available_for_hiring:
+                limit_dict['max_limit'] = available_for_hiring[name]
+            else:
+                limit_dict['max_limit'] = number_of_staff[name]
+            result[name] = limit_dict
+        return result
+    
+    
+    def set_working_conditions(self, new_wc: str):
+        """Установить уровень условий труда"""
         if not self.my_asset.can_owner_make_changes(): return
-        pass
+        if not self.my_asset.can_be_changed(): return
+        if not new_wc in Specialists.dict_of_working_conditions_factor: return
+        self._working_conditions = new_wc
     
-    def working_conditions_for_specialist(self):
-        """ """
-        pass
+    def _purchase(self) -> int:
+        """Затраты на условия труда"""
+        full_number_of_staff = Q_(0,'count')
+        for name, number in self.get_number_of_staff().items():
+            full_number_of_staff += number
+        
+        wc_price = Specialists.dict_of_working_conditions_price[self._working_conditions]
+        wc_costs = full_number_of_staff.magnitude * wc_price
+        self.my_asset.my_bank.transaction(
+                payer = self.my_asset,
+                payee = self.my_asset.my_region,
+                amount_of_money = wc_costs)
+        
+        return wc_costs
+
+    def personnel_management(self) -> int:
+        cost = 0
+        hr = self.my_asset.hr
+        number_of_staff = self.get_number_of_staff()
+        for name, target_num in self._target_number_of_staff.items():
+            if target_num > number_of_staff[name]:
+                hr.hiring(
+                    profession_name=name, 
+                    number=target_num - number_of_staff[name]
+                )
+            elif target_num < number_of_staff[name]:
+                cost += hr.dismissal(
+                    profession_name=name, 
+                    number=number_of_staff[name] - target_num
+                )
+        return cost
+    
+    def end_of_round_actions(self):
+        """Действия в конце раунда, перед началом следующего
+        
+        1. Убыль персонала
+        """
+        hr = self.my_asset.hr
+        wc = self._working_conditions
+        factor = Specialists.dict_of_working_conditions_factor[wc]
+        for profession_name, number in self.get_number_of_staff().items():
+            loss = round(number * factor)
+            if not loss: next
+            hr.departure(
+                profession_name=profession_name,
+                number=loss
+            )
 
 
 
