@@ -3,9 +3,9 @@ from pint import UnitRegistry
 ureg = UnitRegistry()
 Q_ = ureg.Quantity
 
-# power = Q_(10, 'hour')
+#power = Q_(10, 'count')
 # p_1 = Q_(2, 'hour')
-# print(power / p_1)
+#print(round(power / 3)
 # if not power: print('ok')
 # power.magnitude
 # power.units
@@ -1042,15 +1042,21 @@ class Person:
             return None
         return self._work_experience[profession_name].copy()
     
+    def get_qualification(self, profession_name: str):
+        work_exp = self.get_work_experience(profession_name)
+        if not work_exp: None
+        qualification = work_exp['qualification']
+        return qualification
+    
     def add_work_experience(
             self, 
             profession_name: str, 
             new_years_of_experience: float = 0,
-            new_poins_in_qualification: float = 0,
+            new_points_in_qualification: float = 0,
             education: str = ''):
         if not profession_name in Person.list_of_types_of_profession:
             raise ValueError(f'profession_name "{profession_name}" not exist')
-        if not education in Person.list_of_types_of_education:
+        if not education in Person.list_of_types_of_education and education != '':
             raise ValueError(f'education "{education}" not exist')
         if not profession_name in self._work_experience:
             dict_of_exp = {
@@ -1062,8 +1068,9 @@ class Person:
         self._work_experience[profession_name]['years_of_experience'] += (
                 new_years_of_experience)
         self._work_experience[profession_name]['qualification'] += (
-                new_poins_in_qualification)
-        self._work_experience[profession_name]['education'] = education
+                new_points_in_qualification)
+        if education: 
+            self._work_experience[profession_name]['education'] = education
     
     def change_organization(self, new_organization: Entity):
         self._my_organization.remove_participant(self)
@@ -1277,9 +1284,9 @@ class Coal_mining_asset(Asset):
         """
         purchase_costs = {}
         purchase_costs['equipment_fleet'] = self.equipment_fleet._purchase()
-        purchase_costs['personnel_managment(staff)'] = self.staff.personnel_management()
+        purchase_costs['personnel_managment(staff)'] = self.staff._personnel_management()
         purchase_costs['staff'] = self.staff._purchase()
-        purchase_costs['personnel_managment(managers)'] = self.specialists.personnel_management()
+        purchase_costs['personnel_managment(managers)'] = self.specialists._personnel_management()
         purchase_costs['managers'] = self.specialists._purchase()
         return purchase_costs
     
@@ -1351,7 +1358,22 @@ class Coal_mining_asset(Asset):
         return proceed_from_coal
     
     def _downtime(self):
-        return 0.01
+        dict_of_downtime_factors = {
+            'downtime_due_to_management_errors': self.specialists.downtime_due_to_management_errors(),
+            'downtime_due_to_staff_errors': self.staff.downtime_due_to_staff_errors()
+        }
+        print('Real downtime:')
+        print(dict_of_downtime_factors)
+        max_value = max(dict_of_downtime_factors.values())
+
+        for name, value in dict_of_downtime_factors:
+            weights = value / max_value
+            dict_of_downtime_factors[name] = value * weights
+        
+        result = sum(dict_of_downtime_factors.values())
+        print(f'Visible downtime:{result}')
+        print(dict_of_downtime_factors)
+        return result
         
         
     def asset_work(self) -> Q_:  
@@ -1765,16 +1787,18 @@ class Specialists:
         self.my_asset = my_asset
 
         self._managers = set()
+
+        self._profession_name_dict = {
+            Person.manager_profession: self._managers
+        }
         
         self._target_number_of_staff = {}
+
+        self._target_number_of_refresher_courses = {}
+        self._number_of_refresher_courses = {}
         
         self._working_conditions = Specialists.base_wc
         self._working_conditions_of_last_round = Specialists.base_wc 
-    
-    
-    def qualifications() -> dict:
-        """ """
-        pass
     
     def get_number_of_staff(self) -> dict:
         """ """
@@ -1788,27 +1812,59 @@ class Specialists:
             return self._managers
     
     def add_employee(self, profession_name: str, person: Person):
-        profession_name_dict = {
-            Person.manager_profession: self._managers
-        }
-        if profession_name not in profession_name_dict: 
+        if profession_name not in self._profession_name_dict: 
             raise ValueError('profession_name incorrect')
-        profession_name_dict[profession_name].add(person)
+        self._profession_name_dict[profession_name].add(person)
     
     def remove_employee(self, person: Person):
         if person in self._managers:
             self._managers.remove(person)
         else:
             raise ValueError('person is not in Specialists')
+
+    def average_qualifications(self) -> dict:
+        """Средний уровень квалификации специалистов
+        {'profession_name': 0.5, ...}"""
+        result = {}
+        for profession_name, specialists in self._profession_name_dict.items():
+            list_of_qualification = [person.get_qualification(profession_name) for person in specialists]
+            if not list_of_qualification: 
+                result[profession_name] = None
+            else:
+                average = sum(list_of_qualification)/len(list_of_qualification)
+                result[profession_name] = average
+
+        return result
     
-    def increasing_efficiency_of_managers(self):
-        """Повышение эффективности менеджеров"""
-        if not self.my_asset.can_owner_make_changes(): return
-        pass
+    def _increasing_efficiency_of_managers(self) -> float:
+        """Повышение эффективности менеджеров
+        c помощью ИТ"""
+        return 0
     
     def downtime_due_to_management_errors(self):
         """Простоии из за ошибок управления"""
-        pass
+
+        increasing_efficiency_of_managers = self._increasing_efficiency_of_managers()
+        average_qualification = self.average_qualifications[Person.manager_profession]
+        factor_max_manager_efficiency = Q_(15, 'count')
+
+        #эффективность менеджера с учетом квалификации
+        manager_efficiency = factor_max_manager_efficiency * average_qualification 
+        #эффективность менеджера с ИТ
+        manager_efficiency = manager_efficiency * (1 + increasing_efficiency_of_managers)
+
+        #количество менеджеров
+        number_of_managers = self.get_number_of_staff[Person.manager_profession]
+        #количество персонала, которое могут контролировать менеджеры
+        number_of_staff_that_managers_can_control = round(number_of_managers.magnitude * manager_efficiency)
+        #общее количество персонала
+        number_of_staff = sum(self.my_asset.staff.get_number_of_staff().values())
+        #процент контролируемых сотрудников персонала
+        control_percentage = number_of_staff_that_managers_can_control / number_of_staff
+
+        #функция зависимости простоев от уровня контроля
+        downtime = 0.99 - (0.98 * control_percentage)
+        return downtime
     
     def set_target_number_of_staff(self, target_number: dict):
         """ Установить целевое число специалистов
@@ -1870,22 +1926,46 @@ class Specialists:
         if not new_wc in Specialists.dict_of_working_conditions_factor: return
         self._working_conditions = new_wc
     
+    def set_number_of_refresher_courses(self, numbers_of_courses: dict):
+        """Установить количество курсов повышения квалификации
+        number_of_courses = {
+            profession_name: Q_(1,'count'),
+            ...}
+        """
+        if not self.my_asset.can_owner_make_changes(): return
+        if not self.my_asset.can_be_changed(): return
+
+        for name, number in numbers_of_courses.items():
+            self._target_number_of_refresher_courses[name] = number
+
+    
     def _purchase(self) -> int:
-        """Затраты на условия труда"""
+        """Затраты 
+        1. на условия труда,
+        2. на курсы повышения квалификации
+        """
         full_number_of_staff = Q_(0,'count')
         for name, number in self.get_number_of_staff().items():
             full_number_of_staff += number
-        
         wc_price = Specialists.dict_of_working_conditions_price[self._working_conditions]
         wc_costs = full_number_of_staff.magnitude * wc_price
+
+        full_number_of_courses = Q_(0, 'count')
+        for name, number in self._target_number_of_refresher_courses.items():
+            self._number_of_refresher_courses[name] += number
+            full_number_of_courses += number
+        cours_price = 400
+        cours_costs = full_number_of_courses * cours_price
+        
+        full_costs = wc_costs + cours_costs
         self.my_asset.my_bank.transaction(
                 payer = self.my_asset,
                 payee = self.my_asset.my_region,
-                amount_of_money = wc_costs)
+                amount_of_money = full_costs)
         
-        return wc_costs
+        return full_costs
 
-    def personnel_management(self) -> int:
+    def _personnel_management(self) -> int:
         cost = 0
         hr = self.my_asset.hr
         number_of_staff = self.get_number_of_staff()
@@ -1902,11 +1982,39 @@ class Specialists:
                 )
         return cost
     
+    def _get_points_from_refresher_courses(self, profession_name: str):
+        if not profession_name in self._number_of_refresher_courses: return 0
+        if self._number_of_refresher_courses[profession_name] == Q_(0, 'count'): return 0
+
+        self._number_of_refresher_courses[profession_name] -= Q_(1, 'count')
+        course_factor = 0.3
+
+        return course_factor
+        
+    
+    def _nem_work_experience(self):
+        years_per_round = 1/self.my_asset.my_world.get_rounds_per_year()
+        poins_per_round = 0.05 
+        for profession_name, specialists in self._profession_name_dict.items():
+            for person in specialists:
+                refresher_course_poins = self._get_points_from_refresher_courses(
+                    profession_name=profession_name
+                )
+                person.add_work_experience(
+                    profession_name=profession_name,
+                    new_years_of_experience=years_per_round,
+                    new_points_in_qualification=poins_per_round + refresher_course_poins
+                )
+    
     def end_of_round_actions(self):
         """Действия в конце раунда, перед началом следующего
         
-        1. Убыль персонала
+        1. Получение опыта
+        2. Убыль персонала
         """
+
+        self._nem_work_experience()
+
         hr = self.my_asset.hr
         wc = self._working_conditions
         factor = Specialists.dict_of_working_conditions_factor[wc]
@@ -1947,15 +2055,18 @@ class Staff:
         self._mining_staff = set()
         self._preparation_staff = set()
         
+        self._profession_name_dict = {
+            Person.mining_profession: self._mining_staff,
+            Person.preparation_profession: self._preparation_staff
+        }
+        
         self._target_number_of_staff = {}
+
+        self._target_number_of_refresher_courses = {}
+        self._number_of_refresher_courses = {}
         
         self._working_conditions = Staff.base_wc
         self._working_conditions_of_last_round = Staff.base_wc 
-        
-    
-    def qualifications(self) -> dict:
-        """ """
-        return self._qualification_of_staff.copy()
     
     def get_number_of_staff(self) -> dict:
         """ """
@@ -1998,10 +2109,37 @@ class Staff:
         number_of_staff = self.get_number_of_staff()[Person.preparation_profession].magnitude 
         return number_of_staff * working_hours 
 
+    def average_qualification(self) -> float:
+        """Средний уровень квалификации по всему персонала"""
+        result = {}
+        list_of_qualification = []
+        for profession_name, specialists in self._profession_name_dict.items():
+            list_of_qualification.extend([person.get_qualification(profession_name) for person in specialists])
+            
+        if not list_of_qualification: 
+            result[profession_name] = None
+        else:
+            average = sum(list_of_qualification)/len(list_of_qualification)
+            
+        return average
+
     
     def downtime_due_to_staff_errors(self):
-        """"""
-        pass
+        """Простои из-за ошибок персонала"""
+
+        average_qualification = self.average_qualification()
+        if not average_qualification: return None
+        probability_of_error = 1 - average_qualification
+
+        number_of_staff = sum(self.get_number_of_staff().values())
+
+        number_of_errors = round(probability_of_error * number_of_staff)
+
+        working_hours = self.my_asset.my_world.get_working_hours_per_round()
+        price_of_error = Q_(0.5, 'hour')
+
+        downtime = price_of_error * number_of_errors / working_hours  
+        return downtime 
         
     
     def set_target_number_of_staff(self, target_number: dict):
@@ -2055,6 +2193,19 @@ class Staff:
                 limit_dict['max_limit'] = number_of_staff[name]
             result[name] = limit_dict
         return result
+
+    
+    def set_number_of_refresher_courses(self, numbers_of_courses: dict):
+        """Установить количество курсов повышения квалификации
+        number_of_courses = {
+            profession_name: Q_(1,'count'),
+            ...}
+        """
+        if not self.my_asset.can_owner_make_changes(): return
+        if not self.my_asset.can_be_changed(): return
+
+        for name, number in numbers_of_courses.items():
+            self._target_number_of_refresher_courses[name] = number
     
     
     def set_working_conditions(self, new_wc: str):
@@ -2064,22 +2215,34 @@ class Staff:
         if not new_wc in Staff.dict_of_working_conditions_factor: return
         self._working_conditions = new_wc
     
+
     def _purchase(self) -> int:
-        """Затраты на условия труда"""
+        """Затраты 
+        1. на условия труда,
+        2. на курсы повышения квалификации
+        """
         full_number_of_staff = Q_(0,'count')
         for name, number in self.get_number_of_staff().items():
             full_number_of_staff += number
-        
         wc_price = Staff.dict_of_working_conditions_price[self._working_conditions]
         wc_costs = full_number_of_staff.magnitude * wc_price
+
+        full_number_of_courses = Q_(0, 'count')
+        for name, number in self._target_number_of_refresher_courses.items():
+            self._number_of_refresher_courses[name] += number
+            full_number_of_courses += number
+        cours_price = 200
+        cours_costs = full_number_of_courses * cours_price
+        
+        full_costs = wc_costs + cours_costs
         self.my_asset.my_bank.transaction(
                 payer = self.my_asset,
                 payee = self.my_asset.my_region,
-                amount_of_money = wc_costs)
+                amount_of_money = full_costs)
         
-        return wc_costs
+        return full_costs
 
-    def personnel_management(self) -> int:
+    def _personnel_management(self) -> int:
         cost = 0
         hr = self.my_asset.hr
         number_of_staff = self.get_number_of_staff()
@@ -2096,14 +2259,44 @@ class Staff:
                 )
         return cost
     
+
+    def _get_points_from_refresher_courses(self, profession_name: str):
+        if not profession_name in self._number_of_refresher_courses: return 0
+        if self._number_of_refresher_courses[profession_name] == Q_(0, 'count'): return 0
+
+        self._number_of_refresher_courses[profession_name] -= Q_(1, 'count')
+        course_factor = 0.3
+
+        return course_factor
+        
+    
+    def _nem_work_experience(self):
+        years_per_round = 1/self.my_asset.my_world.get_rounds_per_year()
+        poins_per_round = 0.05 
+        for profession_name, specialists in self._profession_name_dict.items():
+            for person in specialists:
+                refresher_course_poins = self._get_points_from_refresher_courses(
+                    profession_name=profession_name
+                )
+                person.add_work_experience(
+                    profession_name=profession_name,
+                    new_years_of_experience=years_per_round,
+                    new_points_in_qualification=poins_per_round + refresher_course_poins
+                )
+
+
     def end_of_round_actions(self):
         """Действия в конце раунда, перед началом следующего
         
-        1. Убыль персонала
+        1. Получение опыта
+        2. Убыль персонала
         """
+
+        self._nem_work_experience()
+
         hr = self.my_asset.hr
         wc = self._working_conditions
-        factor = Staff.dict_of_working_conditions_factor[wc]
+        factor = Specialists.dict_of_working_conditions_factor[wc]
         for profession_name, number in self.get_number_of_staff().items():
             loss = round(number * factor)
             if not loss: next
