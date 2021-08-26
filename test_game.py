@@ -94,26 +94,35 @@ if __name__ == "__main__":
     #input()
     company_1.confirm_actions()
     
-    target_profession = {
+    target_staff = {
         Person.mining_profession:Q_(30,'count'), 
         Person.preparation_profession:Q_(30,'count')
     }
 
-    asset_c.staff.set_target_number_of_staff(target_profession)
+    asset_c.staff.set_target_number_of_staff(target_staff)
 
     input()
     company_1.confirm_actions()
 
-    asset_c.staff.set_target_number_of_staff(target_profession)
+    target_specialists = {
+        Person.manager_profession:Q_(5, 'count')
+    }
+    asset_c.specialists.set_target_number_of_staff(target_specialists)
+
+    input()
+    company_1.confirm_actions()
+
+    asset_c.staff.set_target_number_of_staff(target_staff)
     asset_c.staff.set_working_conditions(Staff.comfort_wc)
 
     input()
     company_1.confirm_actions()
 
-    target_profession[Person.preparation_profession] -=Q_(15,'count')
-    asset_c.staff.set_target_number_of_staff(target_profession)
+    target_staff[Person.preparation_profession] -=Q_(15,'count')
+    asset_c.staff.set_target_number_of_staff(target_staff)
 
     input()
     company_1.confirm_actions()
 
     company_1.get_company_status()
+    

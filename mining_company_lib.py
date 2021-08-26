@@ -1130,7 +1130,7 @@ class Labor_market(Entity, Autonomous_organization):
                         organization=self)
                 new_person.add_work_experience(
                         profession_name=profession_name,
-                        new_poins_in_qualification=features['qualification'],
+                        new_points_in_qualification=features['qualification'],
                         education=features['education'])
         
     
@@ -1366,11 +1366,11 @@ class Coal_mining_asset(Asset):
         print(dict_of_downtime_factors)
         max_value = max(dict_of_downtime_factors.values())
 
-        for name, value in dict_of_downtime_factors:
-            weights = value / max_value
-            dict_of_downtime_factors[name] = value * weights
+        for name, value in dict_of_downtime_factors.items():
+            weights = value / max_value 
+            dict_of_downtime_factors[name] = value * weights**2
         
-        result = sum(dict_of_downtime_factors.values())
+        result = min(1,sum(dict_of_downtime_factors.values()))
         print(f'Visible downtime:{result}')
         print(dict_of_downtime_factors)
         return result
@@ -1829,7 +1829,7 @@ class Specialists:
         for profession_name, specialists in self._profession_name_dict.items():
             list_of_qualification = [person.get_qualification(profession_name) for person in specialists]
             if not list_of_qualification: 
-                result[profession_name] = None
+                result[profession_name] = 0
             else:
                 average = sum(list_of_qualification)/len(list_of_qualification)
                 result[profession_name] = average
@@ -1845,7 +1845,7 @@ class Specialists:
         """Простоии из за ошибок управления"""
 
         increasing_efficiency_of_managers = self._increasing_efficiency_of_managers()
-        average_qualification = self.average_qualifications[Person.manager_profession]
+        average_qualification = self.average_qualifications()[Person.manager_profession]
         factor_max_manager_efficiency = Q_(15, 'count')
 
         #эффективность менеджера с учетом квалификации
@@ -1854,13 +1854,16 @@ class Specialists:
         manager_efficiency = manager_efficiency * (1 + increasing_efficiency_of_managers)
 
         #количество менеджеров
-        number_of_managers = self.get_number_of_staff[Person.manager_profession]
+        number_of_managers = self.get_number_of_staff()[Person.manager_profession]
         #количество персонала, которое могут контролировать менеджеры
         number_of_staff_that_managers_can_control = round(number_of_managers.magnitude * manager_efficiency)
         #общее количество персонала
         number_of_staff = sum(self.my_asset.staff.get_number_of_staff().values())
         #процент контролируемых сотрудников персонала
-        control_percentage = number_of_staff_that_managers_can_control / number_of_staff
+        if number_of_staff != Q_(0,'count'):
+            control_percentage = number_of_staff_that_managers_can_control.magnitude / number_of_staff.magnitude
+        else:
+            control_percentage = 1
 
         #функция зависимости простоев от уровня контроля
         downtime = 0.99 - (0.98 * control_percentage)
@@ -1955,13 +1958,14 @@ class Specialists:
             self._number_of_refresher_courses[name] += number
             full_number_of_courses += number
         cours_price = 400
-        cours_costs = full_number_of_courses * cours_price
+        cours_costs = full_number_of_courses.magnitude * cours_price
         
         full_costs = wc_costs + cours_costs
-        self.my_asset.my_bank.transaction(
-                payer = self.my_asset,
-                payee = self.my_asset.my_region,
-                amount_of_money = full_costs)
+        if full_costs:
+            self.my_asset.my_bank.transaction(
+                    payer = self.my_asset,
+                    payee = self.my_asset.my_region,
+                    amount_of_money = full_costs)
         
         return full_costs
 
@@ -1980,6 +1984,11 @@ class Specialists:
                     profession_name=name, 
                     number=number_of_staff[name] - target_num
                 )
+        if cost:
+            self.my_asset.my_bank.transaction(
+                    payer = self.my_asset,
+                    payee = self.my_asset.my_region,
+                    amount_of_money = cost)
         return cost
     
     def _get_points_from_refresher_courses(self, profession_name: str):
@@ -2117,7 +2126,7 @@ class Staff:
             list_of_qualification.extend([person.get_qualification(profession_name) for person in specialists])
             
         if not list_of_qualification: 
-            result[profession_name] = None
+            average = 0
         else:
             average = sum(list_of_qualification)/len(list_of_qualification)
             
@@ -2128,18 +2137,18 @@ class Staff:
         """Простои из-за ошибок персонала"""
 
         average_qualification = self.average_qualification()
-        if not average_qualification: return None
+        
         probability_of_error = 1 - average_qualification
 
         number_of_staff = sum(self.get_number_of_staff().values())
 
-        number_of_errors = round(probability_of_error * number_of_staff)
+        number_of_errors = round(probability_of_error * number_of_staff.magnitude)
 
         working_hours = self.my_asset.my_world.get_working_hours_per_round()
         price_of_error = Q_(0.5, 'hour')
 
         downtime = price_of_error * number_of_errors / working_hours  
-        return downtime 
+        return downtime.magnitude 
         
     
     def set_target_number_of_staff(self, target_number: dict):
@@ -2232,13 +2241,14 @@ class Staff:
             self._number_of_refresher_courses[name] += number
             full_number_of_courses += number
         cours_price = 200
-        cours_costs = full_number_of_courses * cours_price
+        cours_costs = full_number_of_courses.magnitude * cours_price
         
         full_costs = wc_costs + cours_costs
-        self.my_asset.my_bank.transaction(
-                payer = self.my_asset,
-                payee = self.my_asset.my_region,
-                amount_of_money = full_costs)
+        if full_costs:
+            self.my_asset.my_bank.transaction(
+                    payer = self.my_asset,
+                    payee = self.my_asset.my_region,
+                    amount_of_money = full_costs)
         
         return full_costs
 
@@ -2257,6 +2267,12 @@ class Staff:
                     profession_name=name, 
                     number=number_of_staff[name] - target_num
                 )
+
+        if cost:
+            self.my_asset.my_bank.transaction(
+                    payer = self.my_asset,
+                    payee = self.my_asset.my_region,
+                    amount_of_money = cost)
         return cost
     
 
@@ -2354,6 +2370,8 @@ class HR:
                 profession_name=profession_name,
                 person=person 
             )
+        print(f'Asset hired {number.magnitude} {profession_name}')
+
     
     def departure(self, profession_name:str, number: Q_):
         """Уход сотрудников"""
